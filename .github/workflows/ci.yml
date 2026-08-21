@@ -15,15 +15,16 @@ jobs:
     name: Web (Next.js)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
+      # Sürüm bilinçli olarak belirtilmiyor: pnpm/action-setup, kök
+      # package.json içindeki "packageManager" alanını okur. İkisi birden
+      # verilirse ERR_PNPM_BAD_PM_VERSION hatası oluşur.
+      - uses: pnpm/action-setup@v6
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -35,12 +36,18 @@ jobs:
     name: Python (API + Worker + Core)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
           cache: pip
+          # Depoda requirements.txt yok; önbellek anahtarı pyproject
+          # dosyalarından türetilir.
+          cache-dependency-path: |
+            libs/krizkalkan-core/pyproject.toml
+            apps/api/pyproject.toml
+            apps/worker/pyproject.toml
 
       - name: Bağımlılıkları kur
         run: |
