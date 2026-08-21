@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "krizkalkan-core"
+version = "0.0.1"
+description = "KrizKalkan AI — paylaşılan alan modeli, şemalar ve analiz modülleri"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.15.2",
+    "mypy>=1.19.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/krizkalkan_core"]

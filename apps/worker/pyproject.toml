@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "krizkalkan-worker"
+version = "0.0.1"
+description = "KrizKalkan AI — Celery analiz kuyruğu işçisi"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "krizkalkan-core",
+    "celery[redis]>=5.6.3",
+    "redis>=6.4.0",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.13.0",
+    "sqlalchemy>=2.0.52",
+    "psycopg[binary]>=3.2.12",
+    "boto3>=1.41.5",
+    "structlog>=25.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.4.2",
+    "ruff>=0.15.2",
+    "mypy>=1.19.1",
+]
+# Ağır ML bağımlılıkları bilinçli olarak ayrı tutuldu; ilgili modül
+# geliştirilmeye başlandığında eklenecektir (torch, transformers, faiss, ffmpeg vb.).
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/krizkalkan_worker"]

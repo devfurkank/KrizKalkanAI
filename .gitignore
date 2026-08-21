@@ -1,0 +1,80 @@
+# --- Kök dizindeki ekran görüntüleri (tasarım referansı, repoya girmez) ---
+# Not: yalnızca kök dizin hedeflenir; uygulama içi görseller (apps/web/public vb.) commit edilebilir.
+/*.png
+/*.jpg
+/*.jpeg
+
+# --- Node / pnpm ---
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Next.js ---
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+.vercel
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Ortam değişkenleri ---
+.env
+.env.*
+!.env.example
+
+# --- Veri ve model ağırlıkları (asla commit edilmez) ---
+# İçerik yok sayılır, dizin yapısı .gitkeep ile korunur.
+data/raw/*
+data/processed/*
+data/interim/*
+data/external/*
+data/synthetic/*
+!data/*/.gitkeep
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.faiss
+*.index
+
+# --- Docker / altyapı yerel durumu ---
+infra/volumes/
+
+# --- Editör ve işletim sistemi ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*~

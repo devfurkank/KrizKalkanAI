@@ -1,0 +1,24 @@
+{
+  "name": "krizkalkan-ai",
+  "version": "0.0.1",
+  "private": true,
+  "description": "KrizKalkan AI — afet ve kriz dönemlerinde çok modlu bilgi bütünlüğü sistemi",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @krizkalkan/web dev",
+    "build": "pnpm --filter @krizkalkan/web build",
+    "start": "pnpm --filter @krizkalkan/web start",
+    "lint": "pnpm -r --parallel lint",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml,css}\"",
+    "clean": "pnpm -r exec rm -rf node_modules .next dist && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.6"
+  }
+}

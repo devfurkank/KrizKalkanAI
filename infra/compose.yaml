@@ -1,0 +1,61 @@
+name: krizkalkan
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: krizkalkan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: krizkalkan
+      POSTGRES_PASSWORD: krizkalkan
+      POSTGRES_DB: krizkalkan
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18+ verisini sürüme özel alt dizinde tutar; bağlama noktası
+      # /var/lib/postgresql olmalıdır (17 ve öncesindeki .../data değil).
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U krizkalkan -d krizkalkan"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    container_name: krizkalkan-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: krizkalkan-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: krizkalkan
+      MINIO_ROOT_PASSWORD: krizkalkan
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Yönetim arayüzü
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

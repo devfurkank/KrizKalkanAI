@@ -1,0 +1,51 @@
+# Kök seviye Python araç yapılandırması.
+# Bu dosya kurulabilir bir paket tanımlamaz; yalnızca ruff/mypy/pytest ayarlarını
+# tüm Python paketleri için tek yerde toplar.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "notebooks"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RUF", # ruff'a özel kurallar
+]
+ignore = [
+    "E501",   # satır uzunluğu formatter tarafından yönetilir
+    # Kod tabanı Türkçedir; ruff'ın "belirsiz unicode" kuralları Türkçe
+    # karakterleri (ı, İ, ş, ğ) hatalı biçimde işaretlediği için kapatıldı.
+    "RUF001", # dizgide belirsiz karakter
+    "RUF002", # docstring'de belirsiz karakter
+    "RUF003", # yorumda belirsiz karakter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = ["\\.venv", "notebooks"]
+
+[tool.pytest.ini_options]
+testpaths = ["libs/krizkalkan-core/tests", "apps/api/tests", "apps/worker/tests"]
+pythonpath = [
+    "libs/krizkalkan-core/src",
+    "apps/api/src",
+    "apps/worker/src",
+]
+# importlib modu: üç ayrı pakette de "tests" adlı dizin bulunduğu için
+# klasik import modu ad çakışması üretiyordu.
+addopts = "-q --import-mode=importlib"
+consider_namespace_packages = true
