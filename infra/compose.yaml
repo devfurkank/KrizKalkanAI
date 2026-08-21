@@ -45,8 +45,8 @@ services:
       MINIO_ROOT_USER: krizkalkan
       MINIO_ROOT_PASSWORD: krizkalkan
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Yönetim arayüzü
+      - "9000:9000" # S3 API
+      - "9001:9001" # Yönetim arayüzü
     volumes:
       - minio-data:/data
     healthcheck:

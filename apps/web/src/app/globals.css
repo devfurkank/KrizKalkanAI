@@ -1,26 +1,69 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Manuel karanlık mod: "Karanlık mod" anahtarı <html> üzerine .dark ekler. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Renkler ekran görüntülerinden piksel örneklemesiyle çıkarılmıştır. */
+  --color-ns-primary: #374af5;
+  --color-ns-primary-soft: #d9e4fd;
+  --color-ns-link: #448ef7;
+
+  --color-ns-grad-from: #5dc6de;
+  --color-ns-grad-to: #394ff4;
+
+  --color-ns-ink: #242731;
+  --color-ns-body: #3b4151;
+  --color-ns-muted: #80848f;
+  --color-ns-subtle: #a8aab2;
+  --color-ns-faint: #bababa;
+
+  --color-ns-surface: #ffffff;
+  --color-ns-canvas: #fefefe;
+  --color-ns-hover: #fafafa;
+  --color-ns-line: #eeeef1;
+  --color-ns-field: #ececef;
+
+  /* Karanlık mod paleti: ekran görüntüsü bulunmadığı için ana renkler
+     korunarak türetilmiştir. */
+  --color-nsd-canvas: #0b0d12;
+  --color-nsd-surface: #14171f;
+  --color-nsd-hover: #1b1f29;
+  --color-nsd-line: #242835;
+  --color-nsd-ink: #f2f3f7;
+  --color-nsd-body: #d3d6de;
+  --color-nsd-subtle: #8b90a0;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --radius-card: 16px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-ns-canvas);
+  color: var(--color-ns-body);
+}
+
+.dark body {
+  background: var(--color-nsd-canvas);
+  color: var(--color-nsd-body);
+}
+
+/* Kartlarda sert kenarlık yerine yumuşak gölge kullanılıyor (orijinaldeki gibi). */
+@utility card-shadow {
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 0.04),
+    0 6px 20px -8px rgb(16 24 40 / 0.08);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
