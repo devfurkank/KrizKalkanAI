@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { Logo } from "@/components/logo";
@@ -7,12 +9,14 @@ import {
   BellIcon,
   BookmarkIcon,
   CompassIcon,
+  GavelIcon,
   HomeFilledIcon,
   MessageIcon,
   MoonIcon,
   NodIcon,
   PenIcon,
   PlayCircleIcon,
+  RadarIcon,
   RocketIcon,
   SettingsIcon,
   StarIcon,
@@ -20,18 +24,27 @@ import {
 } from "@/components/icons";
 import { useDarkMode } from "@/lib/use-dark-mode";
 
-const NAV = [
-  { label: "Ana Sayfa", Icon: HomeFilledIcon, active: true },
-  { label: "Bildirimler", Icon: BellIcon, badge: "99+" },
-  { label: "Mesajlar", Icon: MessageIcon },
-  { label: "Keşfet", Icon: CompassIcon },
-  { label: "Nod Oyna", Icon: NodIcon },
-  { label: "Topluluklar", Icon: StarIcon },
-  { label: "Kaydedilenler", Icon: BookmarkIcon },
-  { label: "Beğeniler", Icon: RocketIcon },
-  { label: "Ayarlar", Icon: SettingsIcon },
-  { label: "TEKNOFEST Kayıt", Icon: TeknofestIcon },
-] as const;
+interface NavItem {
+  label: string;
+  href: string;
+  Icon: (p: { className?: string }) => React.ReactElement;
+  badge?: string;
+}
+
+const NAV: NavItem[] = [
+  { label: "Ana Sayfa", href: "/", Icon: HomeFilledIcon },
+  { label: "Kriz Radar", href: "/radar", Icon: RadarIcon },
+  { label: "Moderatör", href: "/moderator", Icon: GavelIcon },
+  { label: "Bildirimler", href: "#", Icon: BellIcon, badge: "99+" },
+  { label: "Mesajlar", href: "#", Icon: MessageIcon },
+  { label: "Keşfet", href: "#", Icon: CompassIcon },
+  { label: "Nod Oyna", href: "#", Icon: NodIcon },
+  { label: "Topluluklar", href: "#", Icon: StarIcon },
+  { label: "Kaydedilenler", href: "#", Icon: BookmarkIcon },
+  { label: "Beğeniler", href: "#", Icon: RocketIcon },
+  { label: "Ayarlar", href: "#", Icon: SettingsIcon },
+  { label: "TEKNOFEST Kayıt", href: "#", Icon: TeknofestIcon },
+];
 
 function Switch({
   checked,
@@ -63,23 +76,25 @@ function Switch({
 }
 
 export function Sidebar({ onNewPost }: { onNewPost: () => void }) {
-  const [media, setMedia] = useState(false);
+  const [lowBandwidth, setLowBandwidth] = useState(false);
   const [dark, setDark] = useDarkMode();
+  const pathname = usePathname();
 
   return (
     <aside className="sticky top-0 flex h-dvh w-[262px] shrink-0 flex-col gap-1 overflow-y-auto py-7 no-scrollbar">
       <div className="mb-6 pl-3">
-        <Logo />
+        <Link href="/" aria-label="Ana sayfa">
+          <Logo />
+        </Link>
       </div>
 
       <nav className="flex flex-col gap-0.5">
-        {NAV.map(({ label, Icon, ...rest }) => {
-          const active = "active" in rest && rest.active;
-          const badge = "badge" in rest ? rest.badge : undefined;
+        {NAV.map(({ label, href, Icon, badge }) => {
+          const active = href !== "#" && pathname === href;
           return (
-            <a
+            <Link
               key={label}
-              href="#"
+              href={href}
               aria-current={active ? "page" : undefined}
               className={`group flex items-center gap-3 rounded-full py-2 pr-4 pl-2.5 text-[15px] transition-colors ${
                 active
@@ -94,7 +109,9 @@ export function Sidebar({ onNewPost }: { onNewPost: () => void }) {
                   }`}
                 >
                   <Icon
-                    className={`size-[22px] ${active ? "text-ns-primary" : "text-ns-ink dark:text-nsd-body"}`}
+                    className={`size-[22px] ${
+                      active ? "text-ns-primary" : "text-ns-ink dark:text-nsd-body"
+                    }`}
                   />
                 </span>
                 {badge ? (
@@ -104,7 +121,7 @@ export function Sidebar({ onNewPost }: { onNewPost: () => void }) {
                 ) : null}
               </span>
               {label}
-            </a>
+            </Link>
           );
         })}
       </nav>
@@ -121,12 +138,17 @@ export function Sidebar({ onNewPost }: { onNewPost: () => void }) {
       <div className="mt-6 w-[212px] border-t border-ns-line pt-5 dark:border-nsd-line" />
 
       <div className="flex w-[212px] flex-col gap-1">
+        {/* Düşük bant genişliği modu: afet bölgesinde şebeke çökebilir. */}
         <div className="flex items-center justify-between rounded-full py-2 pr-2 pl-2.5">
           <span className="flex items-center gap-3 text-[15px] text-ns-ink dark:text-nsd-body">
             <PlayCircleIcon className="size-[22px]" />
-            Medya
+            Düşük bant modu
           </span>
-          <Switch checked={media} onChange={setMedia} label="Medya" />
+          <Switch
+            checked={lowBandwidth}
+            onChange={setLowBandwidth}
+            label="Düşük bant genişliği modu"
+          />
         </div>
         <div className="flex items-center justify-between rounded-full py-2 pr-2 pl-2.5">
           <span className="flex items-center gap-3 text-[15px] text-ns-ink dark:text-nsd-body">

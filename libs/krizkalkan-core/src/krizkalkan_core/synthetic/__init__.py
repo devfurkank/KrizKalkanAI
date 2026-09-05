@@ -1,4 +1,5 @@
-"""M4 — Sentetik medya sinyalleri (video/ses üretim izleri, köken standartları).
+"""M4 — Sentetik medya sinyalleri (video/ses üretim izleri, C2PA)."""
 
-Henüz uygulanmadı.
-"""
+from krizkalkan_core.synthetic.engine import analyse
+
+__all__ = ["analyse"]

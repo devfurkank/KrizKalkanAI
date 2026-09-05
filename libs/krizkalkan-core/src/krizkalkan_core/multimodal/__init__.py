@@ -1,4 +1,5 @@
-"""M2 — Çok modlu çelişki analizi (ses-görüntü senkronu, konuşmacı uyumu, sahne-iddia uyumu).
+"""M2 — Çok modlu çelişki analizi (AV senkron, konuşmacı–yüz, sahne–iddia)."""
 
-Henüz uygulanmadı.
-"""
+from krizkalkan_core.multimodal.engine import analyse
+
+__all__ = ["analyse"]

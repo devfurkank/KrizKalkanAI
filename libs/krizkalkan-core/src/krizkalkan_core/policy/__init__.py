@@ -1,4 +1,5 @@
-"""M7 — Kademeli müdahale politikası (yardım çağrısı koruması, müdahale merdiveni).
+"""M7 — Kademeli müdahale politikası (Kural 0, müdahale merdiveni)."""
 
-Henüz uygulanmadı.
-"""
+from krizkalkan_core.policy.engine import RULE_ZERO_AUDIT, decide
+
+__all__ = ["RULE_ZERO_AUDIT", "decide"]

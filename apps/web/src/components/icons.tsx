@@ -307,3 +307,94 @@ export const ComposeIcon = (p: IconProps) => (
     <path d="M19 13.6v5a1.8 1.8 0 0 1-1.8 1.8H5.4a1.8 1.8 0 0 1-1.8-1.8V6.8A1.8 1.8 0 0 1 5.4 5h5" />
   </Svg>
 );
+
+/* ─────────── Analiz kartı ikonları ─────────── */
+
+export const ShieldIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3.4 19 6v6.1c0 4-2.9 7.3-7 8.5-4.1-1.2-7-4.5-7-8.5V6z" />
+    <path d="m9 12 2.2 2.2L15.4 10" />
+  </Svg>
+);
+
+export const ClockRewindIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3.9 12a8.1 8.1 0 1 0 2.5-5.8" />
+    <path d="M3.6 4.4v4.2h4.2M12 7.8V12l3 1.8" />
+  </Svg>
+);
+
+export const QuestionIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.4" />
+    <path d="M9.7 9.4a2.4 2.4 0 1 1 3.3 2.2c-.7.3-1 .9-1 1.6v.4" />
+    <circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+export const SparkIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3.6 13.7 9l5.4 1.7-5.4 1.7L12 17.8l-1.7-5.4L4.9 10.7 10.3 9z" />
+    <path d="M18.4 4.2v2.8M17 5.6h2.8" />
+  </Svg>
+);
+
+export const ScissorsIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="6.4" cy="6.4" r="2.4" />
+    <circle cx="6.4" cy="17.6" r="2.4" />
+    <path d="M8.5 8.1 19.4 18.4M19.4 5.6 8.5 15.9" />
+  </Svg>
+);
+
+export const MegaphoneIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4.2 10.2v3.6a1.4 1.4 0 0 0 1.4 1.4h2.2l7.6 4.2V4.6L7.8 8.8H5.6a1.4 1.4 0 0 0-1.4 1.4" />
+    <path d="M18.6 9.2a4 4 0 0 1 0 5.6" />
+  </Svg>
+);
+
+export const CheckCircleIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.4" />
+    <path d="m8.4 12.2 2.5 2.5 4.8-5" />
+  </Svg>
+);
+
+export const BanIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.4" />
+    <path d="m6.6 6.6 10.8 10.8" />
+  </Svg>
+);
+
+export const LifeBuoyIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.4" />
+    <circle cx="12" cy="12" r="3.4" />
+    <path d="m6.1 6.1 3.5 3.5M14.4 14.4l3.5 3.5M17.9 6.1l-3.5 3.5M9.6 14.4l-3.5 3.5" />
+  </Svg>
+);
+
+export const RadarIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.4" />
+    <circle cx="12" cy="12" r="4.6" />
+    <path d="M12 12 18 7.4" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+  </Svg>
+);
+
+export const GavelIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="m5.4 14.2 4.4-4.4M8.2 8.4l3.4-3.4 5 5-3.4 3.4z" />
+    <path d="M3.6 20.4h9.2M4.6 16.4l3-3" />
+  </Svg>
+);
+
+export const RefreshIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M20.2 12a8.2 8.2 0 1 1-2.6-6" />
+    <path d="M20.4 4.2v4.4H16" />
+  </Svg>
+);
