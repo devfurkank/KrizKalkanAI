@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { ComposerModal } from "@/components/composer";
@@ -8,11 +9,18 @@ import { Sidebar } from "@/components/sidebar";
 
 /**
  * Üç sütunlu uygulama kabuğu.
- * "Yeni Gönderi" kipinin durumu burada tutulur; kenar çubuğu ve kip
- * aynı durumu paylaşır.
+ * "Yeni Gönderi" kipinin durumu burada tutulur; kenar çubuğu ve kip aynı
+ * durumu paylaşır.
  */
-export function AppShell({ children, rail }: { children: React.ReactNode; rail: React.ReactNode }) {
+export function AppShell({
+  children,
+  rail,
+}: {
+  children: React.ReactNode;
+  rail?: React.ReactNode;
+}) {
   const [composerOpen, setComposerOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="mx-auto flex w-full max-w-[1320px] gap-7 px-6">
@@ -21,7 +29,15 @@ export function AppShell({ children, rail }: { children: React.ReactNode; rail: 
       {rail}
 
       <MessagesDock />
-      <ComposerModal open={composerOpen} onClose={() => setComposerOpen(false)} />
+      <ComposerModal
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        onPosted={() => {
+          setComposerOpen(false);
+          router.push("/");
+          router.refresh();
+        }}
+      />
     </div>
   );
 }

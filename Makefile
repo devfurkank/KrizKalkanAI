@@ -1,10 +1,11 @@
-.PHONY: help setup setup-node setup-python up down logs dev-web dev-api dev-worker test lint format clean
+.PHONY: help setup setup-node setup-python up down logs demo dev-web dev-api dev-worker test lint format clean
 
 PY := python3.12
 VENV := .venv
 
 help:
 	@echo "KrizKalkan AI — kullanılabilir komutlar:"
+	@echo "  make demo         SUNUM: API + arayüzü birlikte başlatır"
 	@echo "  make setup        Tüm bağımlılıkları kurar (Node + Python)"
 	@echo "  make up           Altyapıyı başlatır (Postgres, Redis, MinIO)"
 	@echo "  make down         Altyapıyı durdurur"
@@ -36,6 +37,15 @@ down:
 
 logs:
 	docker compose -f infra/compose.yaml logs -f
+
+# Sunum komutu: analiz servisi ve arayüz birlikte ayağa kalkar.
+# Postgres/Redis/MinIO gerekmez — depo bellek içi, analiz satır içi çalışır.
+demo:
+	@echo "→ API  : http://localhost:8000/docs"
+	@echo "→ Arayüz: http://localhost:3000"
+	@$(VENV)/bin/uvicorn krizkalkan_api.main:app --port 8000 & \
+	 pnpm --filter @krizkalkan/web dev; \
+	 kill %1 2>/dev/null || true
 
 dev-web:
 	pnpm --filter @krizkalkan/web dev
