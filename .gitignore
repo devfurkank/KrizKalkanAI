@@ -78,3 +78,5 @@ Thumbs.db
 !.vscode/settings.json
 *.swp
 *~
+
+/docs/MODEL-YOL-HARITASI.md
