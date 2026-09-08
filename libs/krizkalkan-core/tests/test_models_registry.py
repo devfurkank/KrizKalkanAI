@@ -206,3 +206,83 @@ def test_kartta_istenen_metrik_yoksa_yuklenmez(monkeypatch, tmp_path: Path) -> N
 
     assert r.get("kapili_model") is None
     assert "ölçümü yok" in r.reason("kapili_model")
+
+
+# ─────────────────── Kural 0 karar kaynağı ───────────────────
+#
+# Modelin yardım çağrısı başlığı Kural 0'a BAĞLI DEĞİLDİR ve bu bilinçli bir
+# karardır (docs/metrikler/m3.md · ölçüm). Model yüklendiğinde bu davranışın
+# sessizce değişmemesi gerekir; aşağıdaki testler o kararı kilitler.
+
+
+class _SahteM3:
+    """Her metni yüksek olasılıkla yardım çağrısı sayan model."""
+
+    yardim_esigi = 0.0003
+
+    def analiz(self, metin: str, *, kanit: bool = True):
+        from krizkalkan_core.taxonomy import ClaimType
+        from krizkalkan_core.text.model import MetinCiktisi
+
+        return MetinCiktisi(
+            claim_type=ClaimType.YARDIM_CAGRISI,
+            claim_olasilik=0.99,
+            yanlis_etiket="diger",
+            yanlis_olasilik=0.5,
+            yardim_olasilik=0.99,
+            yardim_kanitlari=[],
+        )
+
+    def yardim_skoru(self, olasilik: float) -> float:
+        return 0.99
+
+
+def test_model_kural_sifiri_tetikleyemez(monkeypatch) -> None:
+    """Model "yardım çağrısı" dese bile Kural 0 kararı sözlükte kalır.
+
+    Ölçüm, modelin Türkçe'de seferberlik söylemini yardım çağrısından
+    ayıramadığını gösterdi: "hepimiz sokağa dökülelim" metni sınanan tüm
+    çalışma noktalarında korumaya alınıyordu. Kural 0 tetiklendiğinde sistem
+    hiçbir müdahale uygulamadığı için bu, provokatif içeriğin etiketsiz
+    geçmesi demekti.
+    """
+    from krizkalkan_core.text import engine as text_engine
+    from krizkalkan_core.text import model as m3
+
+    monkeypatch.setattr(m3, "get", lambda: _SahteM3())
+
+    analiz, sinyaller = text_engine.analyse(
+        "Sorumlular hesap versin, hepimiz sokağa dökülelim! Gerçekleri saklıyorlar."
+    )
+    assert analiz.help_call_score < 0.35, "Kural 0 model skoruyla tetiklenmemeli"
+
+    model_sinyali = next((s for s in sinyaller if s.key == "text.help_call_model"), None)
+    assert model_sinyali is not None, "model çıktısı bilgi olarak raporlanmalı"
+    assert model_sinyali.score > 0.35, "sinyal raporlanıyor ama karara girmiyor"
+
+
+def test_gercek_yardim_cagrisi_sozlukle_korunur(monkeypatch) -> None:
+    """Türkçe yardım çağrısı, model olsun olmasın korunmalıdır."""
+    from krizkalkan_core.text import engine as text_engine
+    from krizkalkan_core.text import model as m3
+
+    monkeypatch.setattr(m3, "get", lambda: _SahteM3())
+    analiz, _ = text_engine.analyse(
+        "Enkaz altındayız lütfen yardım edin Antakya Sümerler Mahallesi 3. sokak"
+    )
+    assert analiz.help_call_score > 0.35
+
+
+def test_model_iddia_tipini_belirler(monkeypatch) -> None:
+    """Sınıflandırma modelin, yapısal alanlar sözlüğün işidir."""
+    from krizkalkan_core.taxonomy import ClaimType
+    from krizkalkan_core.text import engine as text_engine
+    from krizkalkan_core.text import model as m3
+
+    monkeypatch.setattr(m3, "get", lambda: _SahteM3())
+    analiz, _ = text_engine.analyse("Hatay'da 7.8 büyüklüğünde deprem sonrası köprü çöktü.")
+
+    assert analiz.claims, "iddia çıkarılmalı"
+    assert analiz.claims[0].claim_type is ClaimType.YARDIM_CAGRISI, "tür modelden gelmeli"
+    assert analiz.claims[0].location is not None, "konum sözlükten korunmalı"
+    assert analiz.claims[0].magnitude is not None, "büyüklük sözlükten korunmalı"

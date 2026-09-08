@@ -47,6 +47,43 @@ from m3_text import (  # noqa: E402
 RAPOR = REPO_ROOT / "docs" / "metrikler" / "m3.md"
 
 
+class OnnxSarmalayici:
+    """int8 ONNX modelini torch modeliyle aynı arayüzle sunar.
+
+    Eşik seçimi fp32 torch modelinde yapılıp üretimde int8 ONNX çalıştırılırsa,
+    nicelemenin olasılıkları kaydırması eşiği geçersiz kılar. Aynı değerlendirme
+    kodunu iki çalışma zamanında da koşturabilmek bu riski ölçülebilir yapar.
+    """
+
+    def __init__(self, dizin: Path, maks_uzunluk: int = 128) -> None:
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        self.tokenizer = Tokenizer.from_file(str(dizin / "tokenizer.json"))
+        self.tokenizer.enable_truncation(max_length=maks_uzunluk)
+        self.tokenizer.enable_padding(length=maks_uzunluk)
+        self.oturum = ort.InferenceSession(
+            str(dizin / "model.onnx"), providers=["CPUExecutionProvider"]
+        )
+
+    def eval(self) -> OnnxSarmalayici:  # torch API uyumu
+        return self
+
+    def __call__(self, input_ids, attention_mask) -> dict[str, torch.Tensor]:
+        claim, yanlis, yardim = self.oturum.run(
+            None,
+            {
+                "input_ids": input_ids.cpu().numpy().astype("int64"),
+                "attention_mask": attention_mask.cpu().numpy().astype("int64"),
+            },
+        )
+        return {
+            "claim": torch.from_numpy(claim),
+            "yanlis": torch.from_numpy(yanlis),
+            "yardim": torch.from_numpy(yardim),
+        }
+
+
 def _git_commit() -> str:
     try:
         return subprocess.run(
@@ -60,17 +97,24 @@ def _git_commit() -> str:
         return "—"
 
 
-def olc(kontrol_noktasi: Path, omurga: str, yigin: int = 64) -> dict:
+def olc(kontrol_noktasi: Path, omurga: str, yigin: int = 64, onnx: bool = False) -> dict:
     from transformers import AutoTokenizer
 
-    cihaz = (
-        "cuda"
-        if torch.cuda.is_available()
-        else ("mps" if torch.backends.mps.is_available() else "cpu")
-    )
-    tokenizer = AutoTokenizer.from_pretrained(kontrol_noktasi)
-    model = CokGorevliModel(omurga).to(cihaz)
-    model.load_state_dict(torch.load(kontrol_noktasi / "model.pt", map_location=cihaz))
+    if onnx:
+        cihaz = "cpu"
+        model = OnnxSarmalayici(kontrol_noktasi)
+        tokenizer = AutoTokenizer.from_pretrained(
+            omurga if not (kontrol_noktasi / "tokenizer_config.json").exists() else kontrol_noktasi
+        )
+    else:
+        cihaz = (
+            "cuda"
+            if torch.cuda.is_available()
+            else ("mps" if torch.backends.mps.is_available() else "cpu")
+        )
+        tokenizer = AutoTokenizer.from_pretrained(kontrol_noktasi)
+        model = CokGorevliModel(omurga).to(cihaz)
+        model.load_state_dict(torch.load(kontrol_noktasi / "model.pt", map_location=cihaz))
 
     # Değerlendirme karışık kümede yapılır: 2. aşamanın Türkçe verisi tek başına
     # yardım çağrısı ve iddia tipi başlıklarını göremez.
@@ -82,7 +126,7 @@ def olc(kontrol_noktasi: Path, omurga: str, yigin: int = 64) -> dict:
     return degerlendir(model, yukleyici, cihaz)
 
 
-def rapor_yaz(metrikler: dict, kontrol_noktasi: Path, n: int) -> Path:
+def rapor_yaz(metrikler: dict, kontrol_noktasi: Path, n: int, calisma_zamani: str) -> Path:
     egri = metrikler.get("yardim_egri", [])
     simdi = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
     s = [
@@ -93,6 +137,7 @@ def rapor_yaz(metrikler: dict, kontrol_noktasi: Path, n: int) -> Path:
         "| | |",
         "|---|---|",
         f"| Kontrol noktası | `{kontrol_noktasi.name}` |",
+        f"| Çalışma zamanı | **{calisma_zamani}** |",
         f"| Doğrulama kümesi | {n:,} satır (karışık: kriz alanı + Türkçe) |",
         "| Bölünme | Olay bazlı — hiçbir olay iki kümede değil |",
         "",
@@ -155,6 +200,12 @@ def rapor_yaz(metrikler: dict, kontrol_noktasi: Path, n: int) -> Path:
         "",
         "## Yöntem notu",
         "",
+        "Ölçüm, üretimde çalışacak motorun üzerinde yapılır. Eşik fp32 torch",
+        "modelinde seçilip int8 ONNX ile çalıştırılırsa nicelemenin olasılıkları",
+        "kaydırması eşiği geçersiz kılar: bu modelde eşik fp32'de 0,000287,",
+        "int8'de 0,000317 çıktı (%10 fark). Aradaki metrik sapması 0,003–0,010",
+        "bandında kaldı.",
+        "",
         "Model çok görevlidir: tek gövde, üç başlık. Eğitim iki aşamalıdır —",
         "1. aşama kriz alanı (HumAID, İngilizce), 2. aşama Türkçe uyarlama.",
         "",
@@ -170,13 +221,42 @@ def rapor_yaz(metrikler: dict, kontrol_noktasi: Path, n: int) -> Path:
     return RAPOR
 
 
+def yardim_pozitif_bilesimi() -> tuple[int, dict[str, int]]:
+    """Yardım çağrısı pozitiflerinin hangi kaynaktan geldiğini sayar.
+
+    Metriğin hangi dil üzerinde ölçüldüğü, metriğin kendisi kadar önemlidir:
+    Türkçe kaynaklarda bu etiket yoktur, dolayısıyla duyarlılık sayısı çapraz
+    dilli aktarımı ölçer, ürünün çalışacağı dildeki başarımı değil.
+    """
+    ham = pd.read_parquet(REPO_ROOT / "data" / "processed" / "val.parquet")
+    val = asama_verisi(ham, asama=2, replay_orani=1.0)
+    pozitifler = val[val["yardim_cagrisi"] == 1]
+    return len(pozitifler), pozitifler.groupby("dil").size().to_dict()
+
+
 def kart_yaz(metrikler: dict, kontrol_noktasi: Path, omurga: str, n: int) -> Path:
     duyarlilik = metrikler.get("yardim_duyarlilik_esikli", 0.0)
     fpr = metrikler.get("yardim_yanlis_pozitif_orani")
+    pozitif_sayisi, dil_dagilimi = yardim_pozitif_bilesimi()
+    yardim_kumesi = (
+        "yardım pozitifleri: "
+        + ", ".join(f"{d}={s}" for d, s in sorted(dil_dagilimi.items()))
+        + f" (toplam {pozitif_sayisi})"
+    )
+
     sinirlar = [
-        "Türkçe etiketli yardım çağrısı verisi bulunmadığı için B2 başlığı "
-        "İngilizce HumAID üzerinden çapraz dilli öğrenilmiştir; Türkçe alan içi "
-        "başarımı ayrıca ölçülmemiştir.",
+        "🔴 Modelin yardım çağrısı başlığı KURAL 0'A BAĞLI DEĞİLDİR. Kural 0 "
+        "kararı sözlük tabanlı yolda kalır. Gerekçe ölçüldü: model Türkçe'de "
+        "seferberlik söylemini yardım çağrısından ayıramıyor — "
+        "“hepimiz sokağa dökülelim” metni sınanan tüm çalışma noktalarında "
+        "(duyarlılık 0,80–0,95) korumaya alınıyor. Aynı metinlerde sözlük "
+        "kusursuz ayırıyor.",
+        f"Yardım çağrısı duyarlılığı ({duyarlilik:.4f}) yalnızca İNGİLİZCE "
+        f"üzerinde ölçülmüştür — {yardim_kumesi}. Türkçe kaynaklarda bu etiket "
+        "yoktur (docs/veri-envanteri.md · D3). Sayı çapraz dilli aktarımı ölçer, "
+        "ürünün çalışacağı dildeki başarımı DEĞİL.",
+        "Türkçe yardım çağrısı başarımını ölçmek için elle etiketlenmiş bir "
+        "Türkçe test kümesi gerekir; bu küme henüz yoktur.",
         "8 sınıflı manipülatif söylem başlığı (Görev B1) eğitilmemiştir; sistemde "
         "hâlâ sözlük tabanlı yol kullanılır.",
         "Bölgesel ağız ve Türkçe dışı diller için alt grup analizi yapılmamıştır.",
@@ -216,12 +296,31 @@ def kart_yaz(metrikler: dict, kontrol_noktasi: Path, omurga: str, n: int) -> Pat
             Measurement("claim_makro_f1", metrikler.get("claim_makro_f1", 0), "karışık val", n),
             Measurement("yanlis_makro_f1", metrikler.get("yanlis_makro_f1", 0), "karışık val", n),
             Measurement(
-                "yardim_duyarlilik", duyarlilik, f"karışık val · FPR ≤ {AZAMI_YARDIM_FPR}", n
+                "yardim_duyarlilik",
+                duyarlilik,
+                f"HumAID İngilizce alt kümesi · FPR ≤ {AZAMI_YARDIM_FPR}",
+                pozitif_sayisi,
+                "Türkçe ölçüm YOK — Kural 0 bu başlığa bağlı değildir",
             ),
         ]
         + (
             [Measurement("yardim_yanlis_pozitif_orani", fpr, "karışık val", n)]
             if fpr is not None
+            else []
+        )
+        + (
+            # Eşik bir ölçüm değil bir karardır; ama ağırlıkla birlikte taşınması
+            # gerekir: çıkarım katmanı bunu karttan okur, kodda sabit tutmaz.
+            [
+                Measurement(
+                    "yardim_esik",
+                    metrikler["yardim_esik"],
+                    "karışık val",
+                    n,
+                    "Kural 0 karar eşiği — çıkarım katmanı bu değeri kullanır",
+                )
+            ]
+            if "yardim_esik" in metrikler
             else []
         ),
         known_limits=sinirlar,
@@ -248,9 +347,15 @@ def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--kontrol-noktasi", type=Path, required=True)
     a.add_argument("--omurga", default="FacebookAI/xlm-roberta-base")
+    a.add_argument(
+        "--onnx",
+        action="store_true",
+        help="model.pt yerine int8 model.onnx ile ölç (üretimde çalışacak olan budur)",
+    )
+    a.add_argument("--rapor-yazma", action="store_true", help="yalnızca ölç, belge üretme")
     args = a.parse_args()
 
-    metrikler = olc(args.kontrol_noktasi, args.omurga)
+    metrikler = olc(args.kontrol_noktasi, args.omurga, onnx=args.onnx)
     egri = metrikler.get("yardim_egri", [])
 
     print("\n═══ Kural 0 çalışma noktaları ═══")
@@ -272,7 +377,12 @@ def main() -> int:
     ham = pd.read_parquet(REPO_ROOT / "data" / "processed" / "val.parquet")
     n = len(asama_verisi(ham, asama=2, replay_orani=1.0))
 
-    print(f"\n✓ {rapor_yaz(metrikler, args.kontrol_noktasi, n).relative_to(REPO_ROOT)}")
+    if args.rapor_yazma:
+        return 0
+    calisma_zamani = "int8 ONNX (üretim)" if args.onnx else "fp32 torch"
+    print(
+        f"\n✓ {rapor_yaz(metrikler, args.kontrol_noktasi, n, calisma_zamani).relative_to(REPO_ROOT)}"
+    )
     print(f"✓ {kart_yaz(metrikler, args.kontrol_noktasi, args.omurga, n).relative_to(REPO_ROOT)}")
     return 0
 

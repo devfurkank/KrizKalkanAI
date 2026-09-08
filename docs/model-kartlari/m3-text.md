@@ -5,8 +5,8 @@
 | Model adı | `m3_text` |
 | Temel model | FacebookAI/xlm-roberta-base |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-08T14:57:03+00:00 |
-| Git commit | `5030ed5` |
+| Oluşturulma | 2026-09-08T16:15:50+00:00 |
+| Git commit | `51f6ad8` |
 | Lisans | Model: MIT · Veri: karışık (bkz. docs/veri-envanteri.md) |
 
 ## Amaç ve kapsam
@@ -29,15 +29,18 @@ Metinden iddia yapısı çıkarır, yanlış bilgi ve manipülatif söylem sın�
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| claim_makro_f1 | 0.8506 | karışık val | 4030 | — |
-| yanlis_makro_f1 | 0.7262 | karışık val | 4030 | — |
-| yardim_duyarlilik | 0.9359 | karışık val · FPR ≤ 0.2 | 4030 | — |
-| yardim_yanlis_pozitif_orani | 0.1998 | karışık val | 4030 | — |
+| claim_makro_f1 | 0.8475 | karışık val | 4030 | — |
+| yanlis_makro_f1 | 0.7162 | karışık val | 4030 | — |
+| yardim_duyarlilik | 0.9231 | HumAID İngilizce alt kümesi · FPR ≤ 0.2 | 78 | Türkçe ölçüm YOK — Kural 0 bu başlığa bağlı değildir |
+| yardim_yanlis_pozitif_orani | 0.1988 | karışık val | 4030 | — |
+| yardim_esik | 0.000317 | karışık val | 4030 | Kural 0 karar eşiği — çıkarım katmanı bu değeri kullanır |
 
 ## Bilinen sınırlar
 
-- Kural 0 rapor hedefi (0.98) TUTMUYOR: yanlış pozitif sınırı içinde ulaşılabilen en yüksek duyarlılık 0.9359. Hedef duyarlılık ancak sistemin etiketleme kapsamı yok edilerek elde edilebiliyor; bu bilinçli olarak yapılmadı.
-- Türkçe etiketli yardım çağrısı verisi bulunmadığı için B2 başlığı İngilizce HumAID üzerinden çapraz dilli öğrenilmiştir; Türkçe alan içi başarımı ayrıca ölçülmemiştir.
+- Kural 0 rapor hedefi (0.98) TUTMUYOR: yanlış pozitif sınırı içinde ulaşılabilen en yüksek duyarlılık 0.9231. Hedef duyarlılık ancak sistemin etiketleme kapsamı yok edilerek elde edilebiliyor; bu bilinçli olarak yapılmadı.
+- 🔴 Modelin yardım çağrısı başlığı KURAL 0'A BAĞLI DEĞİLDİR. Kural 0 kararı sözlük tabanlı yolda kalır. Gerekçe ölçüldü: model Türkçe'de seferberlik söylemini yardım çağrısından ayıramıyor — “hepimiz sokağa dökülelim” metni sınanan tüm çalışma noktalarında (duyarlılık 0,80–0,95) korumaya alınıyor. Aynı metinlerde sözlük kusursuz ayırıyor.
+- Yardım çağrısı duyarlılığı (0.9231) yalnızca İNGİLİZCE üzerinde ölçülmüştür — yardım pozitifleri: en=78 (toplam 78). Türkçe kaynaklarda bu etiket yoktur (docs/veri-envanteri.md · D3). Sayı çapraz dilli aktarımı ölçer, ürünün çalışacağı dildeki başarımı DEĞİL.
+- Türkçe yardım çağrısı başarımını ölçmek için elle etiketlenmiş bir Türkçe test kümesi gerekir; bu küme henüz yoktur.
 - 8 sınıflı manipülatif söylem başlığı (Görev B1) eğitilmemiştir; sistemde hâlâ sözlük tabanlı yol kullanılır.
 - Bölgesel ağız ve Türkçe dışı diller için alt grup analizi yapılmamıştır.
 

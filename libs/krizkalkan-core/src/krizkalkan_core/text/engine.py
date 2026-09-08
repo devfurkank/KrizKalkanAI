@@ -19,6 +19,7 @@ from krizkalkan_core.schemas import Evidence, ExtractedClaim, Signal, TextAnalys
 from krizkalkan_core.taxonomy import Certainty, ClaimType
 from krizkalkan_core.taxonomy import ManipulationLabel as L
 from krizkalkan_core.text import lexicon as lex
+from krizkalkan_core.text import model as m3
 
 
 def _span(text: str, needle: str) -> str | None:
@@ -109,8 +110,8 @@ def _help_call_score(norm: str) -> tuple[float, list[str]]:
     return round(max(score - penalty * score, score * 0.55), 4), hits
 
 
-def analyse(raw_text: str) -> tuple[TextAnalysis, list[Signal]]:
-    """Metni analiz eder; TextAnalysis ve üretilen sinyalleri döndürür."""
+def _sozluk_analizi(raw_text: str) -> tuple[TextAnalysis, list[Signal]]:
+    """Sözlük tabanlı analiz — model yokken tek yol, varken yapı sağlayıcısı."""
     norm = lex.normalize(raw_text)
 
     # ── Görev B1 ──
@@ -242,3 +243,135 @@ def analyse(raw_text: str) -> tuple[TextAnalysis, list[Signal]]:
         )
 
     return analysis, signals
+
+
+# ─────────────────────────── Model yolu ───────────────────────────
+
+
+def _model_kaniti(raw_text: str, kanitlar: list[tuple[str, int, int, float]]) -> list[Evidence]:
+    """Örtme ölçümünü kanıt nesnelerine çevirir.
+
+    Kanıt sözlük desenlerinden değil modelden gelir: her kelime metinden
+    çıkarılıp skorun ne kadar düştüğü ölçülür. Açıklama böylece modelin
+    kararını anlatır, sözlüğün kararını değil (rapor 2.2 · Y5).
+    """
+    return [
+        Evidence(
+            kind="metin_araligi",
+            label=f"“{kelime}”",
+            locator=f"{bas}–{son}",
+            detail=f"Kural 0 koruma sinyali · kelime çıkarıldığında skor {dusus:.2f} düşüyor",
+        )
+        for kelime, bas, son, dusus in kanitlar
+    ]
+
+
+def _modelle_zenginlestir(
+    raw_text: str, analysis: TextAnalysis, signals: list[Signal], model: m3.M3Model
+) -> tuple[TextAnalysis, list[Signal]]:
+    """Sözlük çıktısını model kararlarıyla değiştirir.
+
+    İş bölümü bilinçlidir: model sınıflandırır, sözlük yapı çıkarır. Modelin
+    iddia tipi başlığı var ama konum/büyüklük/zaman alanları yok; sekiz etiketli
+    manipülatif söylem başlığı ise hiç eğitilmedi. Bu alanlar sözlükten gelmeye
+    devam eder ve model kartında böyle beyan edilir.
+    """
+    cikti = model.analiz(raw_text)
+
+    # ── Görev B2: Kural 0 — KARAR SÖZLÜKTE KALIR ──
+    #
+    # Modelin yardım çağrısı başlığı Kural 0'a BAĞLANMAZ. Gerekçe ölçülmüştür
+    # (docs/metrikler/m3.md):
+    #
+    #   1. Başlığın 0,92 duyarlılığı yalnızca İngilizce üzerinde ölçüldü.
+    #      Doğrulama kümesindeki 78 pozitifin tamamı HumAID'den gelir; Türkçe
+    #      kaynaklarda bu etiket yoktur (bkz. docs/veri-envanteri.md · D3).
+    #      Sayı çapraz dilli aktarımı ölçer, Türkçe başarımı değil.
+    #
+    #   2. Türkçe'de model, seferberlik söylemini yardım çağrısından
+    #      ayıramıyor: "hepimiz sokağa dökülelim" metni SINANAN TÜM çalışma
+    #      noktalarında (duyarlılık 0,80–0,95) korumaya alınıyor. Kural 0
+    #      tetiklendiğinde sistem hiçbir müdahale uygulamadığı için bu,
+    #      provokatif içeriğin etiketsiz geçmesi demek.
+    #
+    #   3. Aynı Türkçe metinlerde sözlük kusursuz ayırıyor: yardım çağrısı
+    #      0,955 · provokatif/panik/tekzip/nötr 0,000.
+    #
+    # Model çıktısı yine de raporlanır — moderatöre ve kanıt paneline bilgi
+    # olarak gider, karara girmez. Türkçe etiketli yardım çağrısı kümesi
+    # oluşturulduğunda bu karar ölçümle yeniden ele alınmalıdır.
+    model_skoru = model.yardim_skoru(cikti.yardim_olasilik)
+    if model_skoru > analysis.help_call_score:
+        signals.append(
+            Signal(
+                module="M3",
+                key="text.help_call_model",
+                label="Yardım çağrısı (model, bilgi amaçlı)",
+                score=model_skoru,
+                raw_score=model_skoru,
+                evidence=_model_kaniti(raw_text, cikti.yardim_kanitlari)
+                or [
+                    Evidence(
+                        kind="metin_araligi",
+                        label="Model bu metni yardım çağrısına benzetiyor",
+                        detail=(
+                            "Bu sinyal Kural 0'a bağlı DEĞİLDİR: başlığın Türkçe "
+                            "başarımı ölçülmemiştir."
+                        ),
+                    )
+                ],
+            )
+        )
+
+    # ── Görev A: iddia tipi ──
+    # Yapılandırılmış alanlar (konum, büyüklük, zaman, kaynak) sözlükten korunur;
+    # yalnızca tür modelin kararıyla değişir.
+    if analysis.claims:
+        analysis.claims[0] = analysis.claims[0].model_copy(update={"claim_type": cikti.claim_type})
+    elif cikti.claim_type is not ClaimType.BELIRSIZ:
+        analysis.claims = [
+            ExtractedClaim(
+                claim_type=cikti.claim_type,
+                text=raw_text.strip()[:110],
+                certainty=Certainty.OLASILIKSAL,
+            )
+        ]
+
+    # ── Görev B1 yardımcısı: alan-genel yanlış bilgi ──
+    # Karara katkı vermez; kanıt panelinde bağlam olarak gösterilir. Füzyona
+    # bağlanması ayrı bir ölçüm gerektirir (docs/metrikler/m3.md).
+    if cikti.yanlis_etiket == "yanlis":
+        signals.append(
+            Signal(
+                module="M3",
+                key="text.misinformation",
+                label="Alan-genel yanlış bilgi işareti",
+                score=cikti.yanlis_olasilik,
+                raw_score=cikti.yanlis_olasilik,
+                evidence=[
+                    Evidence(
+                        kind="metin_araligi",
+                        label="Metin, yanlış bilgi kalıplarına benziyor",
+                        detail=(
+                            "Bu sinyal tek başına karar vermez; kanıt panelinde "
+                            "bağlam olarak gösterilir."
+                        ),
+                    )
+                ],
+            )
+        )
+
+    return analysis, signals
+
+
+def analyse(raw_text: str) -> tuple[TextAnalysis, list[Signal]]:
+    """Metni analiz eder; TextAnalysis ve üretilen sinyalleri döndürür.
+
+    Model yüklüyse sınıflandırma kararları ondan, yapısal çıkarım sözlükten
+    gelir. Model yoksa sözlük tek başına çalışır ve sözleşme değişmez.
+    """
+    analysis, signals = _sozluk_analizi(raw_text)
+    model = m3.get()
+    if model is None:
+        return analysis, signals
+    return _modelle_zenginlestir(raw_text, analysis, signals, model)
