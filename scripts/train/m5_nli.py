@@ -98,6 +98,22 @@ class NliVeriKumesi(Dataset):
         }
 
 
+def _git_commit() -> str | None:
+    """Ağırlığın hangi kodla üretildiğini kart üzerinden izlenebilir kılar."""
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=REPO_ROOT,
+            check=True,
+        ).stdout.strip()
+    except Exception:
+        return None
+
+
 def veri_yukle(ayarlar: Ayarlar) -> tuple[pd.DataFrame, pd.DataFrame]:
     """SNLI-TR eğitim ve doğrulama kümelerini hazırlar.
 
@@ -129,12 +145,23 @@ def veri_yukle(ayarlar: Ayarlar) -> tuple[pd.DataFrame, pd.DataFrame]:
         return egitim.head(256), dogrulama.head(128)
     if ayarlar.ornek and len(egitim) > ayarlar.ornek:
         # Sınıf dengesi korunarak altörnekleme.
+        #
+        # groupby(...).apply(...) BİLİNÇLİ olarak kullanılmıyor: pandas 3'te
+        # apply, gruplama sütununu sonuçtan düşürüyor. Bu sessizce `label`
+        # kolonunu yok ediyor ve hata ancak eğitim başlarken, veri indirildikten
+        # ve model yüklendikten sonra ortaya çıkıyordu.
         pay = ayarlar.ornek // len(SINIFLAR)
+        parcalar = [
+            grup.sample(min(len(grup), pay), random_state=ayarlar.tohum)
+            for _, grup in egitim.groupby("label")
+        ]
         egitim = (
-            egitim.groupby("label", group_keys=False)
-            .apply(lambda g: g.sample(min(len(g), pay), random_state=ayarlar.tohum))
-            .reset_index(drop=True)
+            pd.concat(parcalar).sample(frac=1.0, random_state=ayarlar.tohum).reset_index(drop=True)
         )
+
+    eksik = {"premise", "hypothesis", "label"} - set(egitim.columns)
+    if eksik:
+        raise ValueError(f"eğitim kümesinde beklenen sütunlar yok: {sorted(eksik)}")
     return egitim, dogrulama
 
 
@@ -244,6 +271,7 @@ def egit(ayarlar: Ayarlar) -> dict:
 
     rapor = {
         "omurga": ayarlar.omurga,
+        "git_commit": _git_commit(),
         "cihaz": cihaz,
         "egitim_satir": len(egitim),
         "dogrulama_satir": len(dogrulama),
@@ -317,6 +345,9 @@ def disa_aktar(kaynak: Path, hedef: Path) -> int:
     quantize_dynamic(
         str(ham), str(hedef / "model.onnx"), weight_type=QuantType.QInt8, per_channel=True
     )
+    # Ara fp32 dosyası 1,1 GB; kalırsa Kaggle çıktısına gereksiz yük biner.
+    ham.unlink(missing_ok=True)
+    ham.with_suffix(".onnx.data").unlink(missing_ok=True)
     boyut = (hedef / "model.onnx").stat().st_size / 1e6
     print(f"✓ int8 ONNX: {hedef / 'model.onnx'} · {boyut:.0f} MB")
     return 0
