@@ -39,13 +39,22 @@ def _overlap(claim_text: str, record: KnowledgeRecord) -> float:
     return round(hits / len(record.keywords), 4)
 
 
+#: Kaynak derecesi → sistem kararı. Anahtarlar `normalize()` çıktısı biçiminde
+#: tutulur; karşılaştırma da normalize üzerinden yapılır.
+#:
+#: Neden casefold() değil: DMM verisi "Yanlış", tohum kayıtlar "YANLIŞ" yazar.
+#: Python'da "YANLIŞ".casefold() → "yanliş" üretir (noktasız I, noktalı i'ye
+#: katlanır) ve "yanlış" ile eşleşmez. Türkçe metinde büyük/küçük harf
+#: karşılaştırması yalnızca projenin katlama işleviyle güvenlidir.
+_RATING_VERDICT: dict[str, KnowledgeVerdict] = {
+    "yanlis": KnowledgeVerdict.CELISIYOR,
+    "dogru": KnowledgeVerdict.DESTEKLIYOR,
+}
+
+
 def _verdict_of(record: KnowledgeRecord) -> KnowledgeVerdict:
     """Kaydın derecesini sistem kararına çevirir."""
-    if record.rating_label == "YANLIŞ":
-        return KnowledgeVerdict.CELISIYOR
-    if record.rating_label == "DOĞRU":
-        return KnowledgeVerdict.DESTEKLIYOR
-    return KnowledgeVerdict.ILGISIZ
+    return _RATING_VERDICT.get(normalize(record.rating_label), KnowledgeVerdict.ILGISIZ)
 
 
 def analyse(claims: list[ExtractedClaim]) -> tuple[KnowledgeMatch | None, list[Signal]]:
@@ -64,7 +73,7 @@ def analyse(claims: list[ExtractedClaim]) -> tuple[KnowledgeMatch | None, list[S
         ]
 
     claim_text = " ".join(c.text for c in claims)
-    scored = [(record, _overlap(claim_text, record)) for record in corpus.RECORDS]
+    scored = [(record, _overlap(claim_text, record)) for record in corpus.records()]
     best, similarity = max(scored, key=lambda pair: pair[1])
 
     # ── Resmî kaynak sessiz ──
