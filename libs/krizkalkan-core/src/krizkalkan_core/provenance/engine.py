@@ -7,7 +7,10 @@ için, olasılıksal sentetik medya analizinden önce çalıştırılır.
 
 from __future__ import annotations
 
-from krizkalkan_core.provenance import corpus
+import logging
+from pathlib import Path
+
+from krizkalkan_core.provenance import corpus, imaging, index
 from krizkalkan_core.provenance.hashing import (
     MATCH_MAX_DISTANCE,
     hamming_distance,
@@ -16,6 +19,77 @@ from krizkalkan_core.provenance.hashing import (
     similarity,
 )
 from krizkalkan_core.schemas import Evidence, ProvenanceMatch, Signal
+
+logger = logging.getLogger(__name__)
+
+
+def _medya_yolu(fingerprint: str) -> Path | None:
+    """Parmak izi gerçek bir görüntü dosyasını mı işaret ediyor?
+
+    Demo senaryoları medyayı bir dize parmak iziyle temsil eder; gerçek
+    kullanımda ise dosya yolu gelir. İkisini ayırmak, demo davranışını
+    bozmadan gerçek medya yolunu açar.
+    """
+    if not fingerprint or len(fingerprint) > 400 or "\n" in fingerprint:
+        return None
+    try:
+        yol = Path(fingerprint)
+    except (OSError, ValueError):
+        return None
+    return yol if yol.is_file() and imaging.gorsel_mi(yol) else None
+
+
+def _indeks_eslesmesi(yol: Path) -> tuple[ProvenanceMatch, list[Evidence]] | None:
+    """Gerçek görüntüyü köken indeksinde arar; indeks yoksa None."""
+    indeks = index.get()
+    if indeks is None:
+        return None
+
+    try:
+        dhash, phash = imaging.karmalar(yol)
+    except Exception:  # bozuk/okunamayan dosya köken sorgusunu düşürmemeli
+        logger.warning("Görüntü okunamadı, köken sorgusu atlandı: %s", yol)
+        return None
+
+    adaylar = indeks.ara(dhash, phash, k=1)
+    if not adaylar or not adaylar[0].eslesti:
+        return ProvenanceMatch(matched=False), [
+            Evidence(
+                kind="ustveri",
+                label="Referans indeksinde eşleşme bulunamadı",
+                locator=f"dHash {dhash:016x}",
+                detail=f"{len(indeks)} kayıt tarandı"
+                + (f" · en yakın mesafe {adaylar[0].mesafe} bit" if adaylar else ""),
+            )
+        ]
+
+    en_iyi = adaylar[0]
+    kayit = en_iyi.kayit
+    return (
+        ProvenanceMatch(
+            matched=True,
+            similarity=en_iyi.benzerlik,
+            first_published=kayit.ilk_yayin,
+            source=kayit.lisans or "Wikimedia Commons",
+            original_event=kayit.olay,
+            original_location=kayit.konum,
+            matched_frame=f"{en_iyi.karma_turu} · {en_iyi.mesafe} bit fark",
+            corpus_id=kayit.kayit_id,
+        ),
+        [
+            Evidence(
+                kind="kare",
+                label=f"Bu görüntü ilk kez {kayit.ilk_yayin or 'bilinmeyen tarihte'} yayımlanmış",
+                locator=f"{en_iyi.karma_turu} · Hamming {en_iyi.mesafe}/64",
+                detail=f"{kayit.kaynak_url or kayit.kayit_id} · lisans: {kayit.lisans or '—'}",
+            ),
+            Evidence(
+                kind="kayit",
+                label=f"Özgün olay: {kayit.olay}",
+                detail=f"Özgün konum: {kayit.konum}",
+            ),
+        ],
+    )
 
 
 def lookup(fingerprint: str) -> tuple[ProvenanceMatch, corpus.CorpusEntry | None]:
@@ -67,6 +141,27 @@ def analyse(
                 abstain_reason="İçerikte medya yok; köken sorgusu uygulanamaz",
             )
         ]
+
+    # Gerçek görüntü geldiyse indeks üzerinden ara; demo parmak izleri
+    # tohumlanmış korpusla eşleşmeye devam eder.
+    if (yol := _medya_yolu(fingerprint)) is not None:
+        sonuc = _indeks_eslesmesi(yol)
+        if sonuc is not None:
+            gercek_match, kanitlar = sonuc
+            return gercek_match, [
+                Signal(
+                    module="M1",
+                    key="provenance.match",
+                    label=(
+                        "Köken eşleşmesi (yeniden bağlam)"
+                        if gercek_match.matched
+                        else "Köken eşleşmesi"
+                    ),
+                    score=gercek_match.similarity,
+                    raw_score=gercek_match.similarity,
+                    evidence=kanitlar,
+                )
+            ]
 
     match, entry = lookup(fingerprint)
 
