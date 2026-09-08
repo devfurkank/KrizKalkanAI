@@ -11,11 +11,20 @@ artan, parçalı doğrusal. Model eğitildiğinde yalnızca bu noktalar değişi
 
 from __future__ import annotations
 
+import json
+import logging
 from bisect import bisect_left
+from functools import lru_cache
 
-#: Sinyal anahtarı → isotonic eşleme noktaları (ham_skor, kalibre_olasılık).
-#: Monoton artan olmak zorundadır.
-CALIBRATION_POINTS: dict[str, list[tuple[float, float]]] = {
+logger = logging.getLogger(__name__)
+
+#: Elle yazılmış YEDEK eşleme noktaları.
+#:
+#: Ölçülmüş kalibrasyon `models/m6_fusion/kalibrasyon.json` dosyasından
+#: yüklenir ve bunların yerine geçer. Dosya yoksa (ağırlıksız kurulum) sistem
+#: bu noktalarla çalışmaya devam eder; değerler literatürdeki tipik davranışa
+#: göre elle seçilmiştir ve ÖLÇÜLMEMİŞTİR.
+VARSAYILAN_NOKTALAR: dict[str, list[tuple[float, float]]] = {
     # Köken eşleşmesi keskin bir olgudur: ya eşleşir ya eşleşmez.
     "provenance.match": [(0.0, 0.0), (0.80, 0.10), (0.86, 0.62), (0.92, 0.93), (1.0, 0.98)],
     # Sentetik medya dedektörleri aşırı güvenlidir; yüksek skorlar bastırılır.
@@ -35,10 +44,58 @@ CALIBRATION_POINTS: dict[str, list[tuple[float, float]]] = {
 #: Tanımlı eşlemesi olmayan sinyaller için birim eşleme.
 _IDENTITY = [(0.0, 0.0), (1.0, 1.0)]
 
+#: Ölçülmüş kalibrasyonun ağırlık dizinindeki konumu.
+KALIBRASYON_DIZINI = "m6_fusion"
+KALIBRASYON_DOSYASI = "kalibrasyon.json"
+
+
+@lru_cache(maxsize=1)
+def _olculmus_noktalar() -> dict[str, list[tuple[float, float]]]:
+    """Ölçülmüş kalibrasyonu yükler; yoksa boş sözlük.
+
+    Kalibrasyon bir veri ürünüdür, kod sabiti değil: `scripts/eval/m6_fusion.py`
+    üretir, buradan okunur. İkisinin ayrı düşmesi, sistemin ölçülmemiş bir
+    eşlemeyle çalışması demektir.
+    """
+    from krizkalkan_core.models.runtime import model_root
+
+    yol = model_root() / KALIBRASYON_DIZINI / KALIBRASYON_DOSYASI
+    if not yol.exists():
+        logger.info("Ölçülmüş kalibrasyon yok (%s); elle yazılmış noktalar kullanılıyor", yol)
+        return {}
+
+    try:
+        ham = json.loads(yol.read_text(encoding="utf-8"))
+        return {
+            anahtar: [(float(x), float(y)) for x, y in bilgi["noktalar"]]
+            for anahtar, bilgi in ham.items()
+            if bilgi.get("noktalar")
+        }
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as hata:
+        logger.warning("Kalibrasyon dosyası okunamadı (%s): %s", yol, hata)
+        return {}
+
+
+def noktalar(key: str) -> list[tuple[float, float]]:
+    """Bir sinyalin eşleme noktaları: ölçülmüş varsa o, yoksa elle yazılmış."""
+    return _olculmus_noktalar().get(key) or VARSAYILAN_NOKTALAR.get(key, _IDENTITY)
+
+
+def kalibrasyon_kaynagi(key: str) -> str:
+    """Sinyalin hangi kaynaktan kalibre edildiği — rapor ve tanılama için."""
+    if key in _olculmus_noktalar():
+        return "ölçülmüş"
+    return "elle yazılmış" if key in VARSAYILAN_NOKTALAR else "kalibre edilmemiş"
+
+
+def reset_cache() -> None:
+    """Kalibrasyon önbelleğini temizler (testler ve yeniden ölçüm için)."""
+    _olculmus_noktalar.cache_clear()
+
 
 def calibrate(key: str, raw: float) -> float:
     """Ham skoru kalibre olasılığa çevirir (parçalı doğrusal interpolasyon)."""
-    points = CALIBRATION_POINTS.get(key, _IDENTITY)
+    points = noktalar(key)
     xs = [p[0] for p in points]
 
     if raw <= xs[0]:
