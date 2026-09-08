@@ -1,6 +1,6 @@
 # M1 — Köken Motoru · Dayanıklılık Değerlendirmesi
 
-*`scripts/eval/m1_robustness.py` tarafından üretildi · 08.09.2026 16:31 UTC · commit `fa6c109`*
+*`scripts/eval/m1_robustness.py` tarafından üretildi · 08.09.2026 16:33 UTC · commit `ab2b653`*
 
 | | |
 |---|---|
@@ -46,6 +46,25 @@ gelir ve sistemin en görünür hatasıdır.
 | Ortalama en yakın mesafe | 18.10 bit |
 
 > Rapor 3.2 hedefi < %1
+
+## Eşik ödünleşimi
+
+Eşleşme eşiği bir sayı değil bir karardır ve iki yönde de maliyetlidir:
+gevşek eşik geometrik dönüşümlere dayanır ama alakasız görüntüleri
+eşleştirir. Aşağıdaki tarama, ağır (geometrik) dönüşümlerdeki Recall@1 ile
+yanlış eşleşme oranını aynı eksende gösterir.
+
+| Hamming eşiği | Ağır dönüşüm Recall@1 | Yanlış eşleşme oranı |
+|---|---|---|
+| 4 | 0.2583 | 0.0167 |
+| 6 | 0.3167 | 0.0167 |
+| 8 | 0.5083 | 0.0167 |
+| 10 | 0.6875 | 0.0167 |
+| 12 | 0.8917 | 0.0167 |
+| 14 | 0.9708 | 0.0333 |
+| 16 | 0.9917 | 0.1833 |
+
+Yürürlükteki eşik: **10 bit** (`provenance/hashing.py · MATCH_MAX_DISTANCE`).
 
 ## Yorum
 

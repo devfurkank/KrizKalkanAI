@@ -176,8 +176,64 @@ def yanlis_eslesme(indeks: ProvenanceIndex, disaridakiler: list[Path]) -> dict[s
     }
 
 
+#: Eşik taramasında denenen Hamming mesafeleri (64 bit üzerinden).
+ESIK_ADAYLARI = (4, 6, 8, 10, 12, 14, 16)
+
+#: Taramada "ağır dönüşüm" sayılanlar — geometrik saldırılar.
+AGIR_DONUSUMLER = ("kırpma %20", "letterbox bant", "sosyal medya çerçevesi", "döndürme 5°")
+
+
+def esik_taramasi(
+    indeks: ProvenanceIndex, ornekler: list[str], disarida: list[Path]
+) -> list[dict[str, float]]:
+    """Eşleşme eşiği ödünleşimi: hangi mesafe ne kadar duyarlılık, ne kadar hata?
+
+    Eşik seçimi bir sayı değil bir karardır ve iki yönde de maliyetlidir.
+    Gevşek eşik dönüşümlere dayanır ama alakasız görüntüleri eşleştirir;
+    yanlış köken eşleşmesi kullanıcıya "bu görüntü başka bir olaya ait" demek
+    anlamına gelir ve sistemin en görünür hatasıdır.
+    """
+    dosya_kayit = {k.dosya: k.kayit_id for k in indeks.kayitlar}
+
+    # Mesafeler eşikten bağımsızdır; bir kez hesaplanıp tüm eşiklerde kullanılır.
+    dogru_mesafeler: list[int] = []
+    for ad in AGIR_DONUSUMLER:
+        donusum = DONUSUMLER[ad]
+        for dosya in ornekler:
+            goruntu = Image.open(KAYNAK / dosya).convert("RGB")
+            dhash, phash = imaging.karmalar(donusum(goruntu))
+            adaylar = indeks.ara(dhash, phash, k=1)
+            if adaylar and adaylar[0].kayit.kayit_id == dosya_kayit[dosya]:
+                dogru_mesafeler.append(adaylar[0].mesafe)
+            else:
+                dogru_mesafeler.append(999)  # doğru kayıt ilk sırada değil
+
+    disari_mesafeler: list[int] = []
+    for yol in disarida:
+        dhash, phash = imaging.karmalar(yol)
+        adaylar = indeks.ara(dhash, phash, k=1)
+        disari_mesafeler.append(adaylar[0].mesafe if adaylar else 999)
+
+    return [
+        {
+            "esik": esik,
+            "agir_recall1": round(
+                sum(1 for m in dogru_mesafeler if m <= esik) / max(len(dogru_mesafeler), 1), 4
+            ),
+            "yanlis_eslesme": round(
+                sum(1 for m in disari_mesafeler if m <= esik) / max(len(disari_mesafeler), 1), 4
+            ),
+        }
+        for esik in ESIK_ADAYLARI
+    ]
+
+
 def rapor_yaz(
-    sonuc: dict[str, dict[str, float]], yanlis: dict[str, float], indeks_boyu: int, n: int
+    sonuc: dict[str, dict[str, float]],
+    yanlis: dict[str, float],
+    indeks_boyu: int,
+    n: int,
+    tarama: list[dict[str, float]],
 ) -> Path:
     simdi = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
     temiz = sonuc.get("temiz (kontrol)", {}).get("recall1", 0.0)
@@ -221,6 +277,24 @@ def rapor_yaz(
         f"| Ortalama en yakın mesafe | {yanlis['ortalama_mesafe']:.2f} bit |",
         "",
         "> Rapor 3.2 hedefi < %1",
+        "",
+        "## Eşik ödünleşimi",
+        "",
+        "Eşleşme eşiği bir sayı değil bir karardır ve iki yönde de maliyetlidir:",
+        "gevşek eşik geometrik dönüşümlere dayanır ama alakasız görüntüleri",
+        "eşleştirir. Aşağıdaki tarama, ağır (geometrik) dönüşümlerdeki Recall@1 ile",
+        "yanlış eşleşme oranını aynı eksende gösterir.",
+        "",
+        "| Hamming eşiği | Ağır dönüşüm Recall@1 | Yanlış eşleşme oranı |",
+        "|---|---|---|",
+    ]
+    s += [
+        f"| {t_['esik']} | {t_['agir_recall1']:.4f} | {t_['yanlis_eslesme']:.4f} |" for t_ in tarama
+    ]
+    s += [
+        "",
+        f"Yürürlükteki eşik: **{MATCH_MAX_DISTANCE} bit** "
+        "(`provenance/hashing.py · MATCH_MAX_DISTANCE`).",
         "",
         "## Yorum",
         "",
@@ -348,7 +422,15 @@ def main() -> int:
         print("  ⚠️ indeks dışı görüntü yok — ölçüm atlandı")
         yanlis = {"yanlis_eslesme_orani": -1.0, "ortalama_mesafe": -1.0, "n": 0}
 
-    print(f"\n✓ {rapor_yaz(sonuc, yanlis, len(indeks), len(ornekler)).relative_to(REPO_ROOT)}")
+    print("\n→ eşik taraması")
+    tarama = esik_taramasi(indeks, ornekler[:60], disarida)
+    print(f"  {'eşik':>5s} {'ağır Recall@1':>14s} {'yanlış eşleşme':>15s}")
+    for t_ in tarama:
+        print(f"  {int(t_['esik']):5d} {t_['agir_recall1']:14.4f} {t_['yanlis_eslesme']:15.4f}")
+
+    print(
+        f"\n✓ {rapor_yaz(sonuc, yanlis, len(indeks), len(ornekler), tarama).relative_to(REPO_ROOT)}"
+    )
     print(f"✓ {kart_yaz(sonuc, yanlis, len(indeks), len(ornekler)).relative_to(REPO_ROOT)}")
     print(json.dumps({"temiz": sonuc["temiz (kontrol)"]["recall1"]}, ensure_ascii=False))
     return 0
