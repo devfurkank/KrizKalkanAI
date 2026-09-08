@@ -1,16 +1,31 @@
 name: CI
 
+# Tüm dallarda çalışır. Yalnızca main'e bakmak, uzun süren özellik
+# dallarındaki hataların birleştirme anına kadar gizli kalmasına yol açıyordu.
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  depo:
+    name: Depo bütünlüğü
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+
+      # Kaynak kodun .gitignore tarafından sessizce silinmediğini doğrular.
+      # Bu bir kez yaşandı: sabitlenmemiş "models/" deseni krizkalkan_core/models
+      # paketini depodan sildi, testler yerelde geçtiği için fark edilmedi.
+      - name: Kaynak dosyalar depoda mı?
+        run: python scripts/ci/repo_denetimi.py
+
   web:
     name: Web (Next.js)
     runs-on: ubuntu-latest

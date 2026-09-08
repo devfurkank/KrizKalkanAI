@@ -1,4 +1,4 @@
-.PHONY: help setup setup-node setup-python setup-models model-durum veri m5-index up down logs demo dev-web dev-api dev-worker test lint format clean
+.PHONY: help setup setup-node setup-python setup-models model-durum veri m5-index depo-denetimi up down logs demo dev-web dev-api dev-worker test lint format clean
 
 PY := python3.12
 VENV := .venv
@@ -18,6 +18,7 @@ help:
 	@echo "  make dev-worker   Celery işçisi"
 	@echo "  make test         Tüm testleri çalıştırır"
 	@echo "  make lint         Lint kontrolü"
+	@echo "  make depo-denetimi Kaynak dosyalar depoda mı? (.gitignore tuzakları)"
 	@echo "  make format       Kod biçimlendirme"
 
 setup: setup-node setup-python
@@ -86,7 +87,11 @@ dev-worker:
 test:
 	$(VENV)/bin/pytest
 
-lint:
+# Kaynak kodun .gitignore tarafından sessizce silinmediğini doğrular.
+depo-denetimi:
+	$(VENV)/bin/python scripts/ci/repo_denetimi.py
+
+lint: depo-denetimi
 	$(VENV)/bin/ruff check .
 	pnpm -r --parallel lint
 

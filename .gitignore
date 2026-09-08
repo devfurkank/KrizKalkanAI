@@ -55,7 +55,11 @@ data/interim/*
 data/external/*
 data/synthetic/*
 !data/*/.gitkeep
-models/
+# Baştaki eğik çizgi ZORUNLU: sabitlenmemiş "models/" deseni her seviyedeki
+# models dizinini yok sayar ve krizkalkan_core/models kaynak paketini de
+# depodan siler. Bu bir kez yaşandı; testler yerelde geçtiği için fark
+# edilmedi, hata ancak temiz bir klonda ortaya çıktı.
+/models/
 *.pt
 *.pth
 *.onnx
