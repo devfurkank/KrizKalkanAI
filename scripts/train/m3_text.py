@@ -61,6 +61,18 @@ YOK = -100
 #: Eşik, hedef duyarlılığı tutturacak biçimde doğrulama kümesinde aranır.
 HEDEF_YARDIM_DUYARLILIK = 0.98
 
+#: Kural 0'ın kabul edilebilir azami yanlış pozitif oranı.
+#:
+#: Bu sınır olmadan hedef duyarlılık anlamsızdır: her içeriği yardım çağrısı
+#: sayan bir model de 1,00 duyarlılık verir. Kural 0 tetiklendiğinde sistem
+#: HİÇBİR müdahale uygulamadığı için, yüksek yanlış pozitif doğrudan sistemin
+#: kapsamını yok eder — FPR 1,0 demek hiçbir içeriğin asla etiketlenmemesi
+#: demektir.
+AZAMI_YARDIM_FPR = 0.20
+
+#: Çalışma noktası eğrisinde taranan duyarlılık hedefleri.
+DUYARLILIK_NOKTALARI = (0.80, 0.85, 0.90, 0.95, 0.98, 0.99)
+
 #: Kaggle'da /kaggle/working, yerelde depo altındaki cikti/ dizini.
 VARSAYILAN_CIKTI = (
     Path("/kaggle/working") if Path("/kaggle/working").exists() else REPO_ROOT / "cikti"
@@ -196,43 +208,74 @@ def makro_f1(gercek: np.ndarray, tahmin: np.ndarray, sinif_sayisi: int) -> float
     return float(np.mean(skorlar)) if skorlar else 0.0
 
 
-def yardim_esigi(olasiliklar: np.ndarray, gercek: np.ndarray) -> dict[str, float]:
-    """Kural 0 eşiğini duyarlılık hedefine göre bulur.
+def _nokta(olasiliklar: np.ndarray, pozitif: np.ndarray, esik: float) -> dict[str, float]:
+    """Bir eşikteki duyarlılık, kesinlik ve yanlış pozitif oranı."""
+    tahmin = olasiliklar >= esik
+    tp = int((tahmin & pozitif).sum())
+    fp = int((tahmin & ~pozitif).sum())
+    negatif = max(int((~pozitif).sum()), 1)
+    return {
+        "esik": round(float(esik), 6),
+        "duyarlilik": round(float(tahmin[pozitif].mean()), 4),
+        "kesinlik": round(tp / (tp + fp), 4) if tp + fp else 0.0,
+        "yanlis_pozitif_orani": round(fp / negatif, 4),
+    }
 
-    Hedefi tutturan eşikler arasından EN YÜKSEĞİ seçilir: hedef duyarlılık
-    sağlandıktan sonra gereksiz yanlış pozitif üretmenin anlamı yoktur.
-    Hiçbir eşik hedefi tutturamıyorsa en düşük eşik ve ulaşılan duyarlılık
-    dürüstçe raporlanır.
+
+def calisma_noktalari(olasiliklar: np.ndarray, gercek: np.ndarray) -> list[dict[str, float]]:
+    """Duyarlılık hedefi → o hedefi tutturan en yüksek eşiğin maliyeti.
+
+    Tek bir eşik yerine eğri raporlanır: hangi duyarlılığın neye mal olduğu
+    görünmeden çalışma noktası seçilemez. Bu eğri rapora doğrudan girer.
+    """
+    pozitif = gercek == 1
+    if not pozitif.any():
+        return []
+
+    adaylar = np.unique(np.round(olasiliklar, 6))
+    noktalar = []
+    for hedef in DUYARLILIK_NOKTALARI:
+        uygun = [e for e in adaylar if float((olasiliklar >= e)[pozitif].mean()) >= hedef]
+        if not uygun:
+            continue
+        nokta = _nokta(olasiliklar, pozitif, max(uygun))
+        nokta["hedef_duyarlilik"] = hedef
+        noktalar.append(nokta)
+    return noktalar
+
+
+def yardim_esigi(olasiliklar: np.ndarray, gercek: np.ndarray) -> dict[str, float]:
+    """Kural 0 için kullanılabilir çalışma noktasını seçer.
+
+    İki kısıt BİRLİKTE uygulanır: duyarlılık hedefi ve azami yanlış pozitif
+    oranı. Yalnızca duyarlılığa bakmak dejenere çözümü ödüllendirir — her
+    içeriği yardım çağrısı sayan model 1,00 duyarlılık verir, ama Kural 0
+    tetiklendiğinde sistem hiçbir müdahale uygulamadığı için bu, hiçbir
+    içeriğin asla etiketlenmemesi demektir. Sistem kendini kapatır.
+
+    Hedef duyarlılık FPR sınırı içinde tutturulamıyorsa, sınırı aşmayan EN
+    YÜKSEK duyarlılık seçilir ve hedefin tutmadığı açıkça işaretlenir.
     """
     pozitif = gercek == 1
     if not pozitif.any():
         return {}
 
-    adaylar = np.unique(np.round(olasiliklar, 4))
-    en_iyi: dict[str, float] = {}
-    for esik in adaylar:
-        tahmin = olasiliklar >= esik
-        duyarlilik = float(tahmin[pozitif].mean())
-        if duyarlilik < HEDEF_YARDIM_DUYARLILIK:
-            continue
-        tp = int((tahmin & pozitif).sum())
-        fp = int((tahmin & ~pozitif).sum())
-        en_iyi = {
-            "yardim_esik": round(float(esik), 4),
-            "yardim_duyarlilik_esikli": round(duyarlilik, 4),
-            "yardim_kesinlik_esikli": round(tp / (tp + fp), 4) if tp + fp else 0.0,
-            # Kural 0'ın maliyeti: kaç masum içerik korumaya alınıyor?
-            "yardim_yanlis_pozitif_orani": round(float(fp / max(int((~pozitif).sum()), 1)), 4),
-        }
-    if en_iyi:
-        return en_iyi
+    adaylar = np.unique(np.round(olasiliklar, 6))
+    kabul = [
+        n
+        for n in (_nokta(olasiliklar, pozitif, e) for e in adaylar)
+        if n["yanlis_pozitif_orani"] <= AZAMI_YARDIM_FPR
+    ]
+    if not kabul:
+        return {"yardim_kullanilabilir_nokta_yok": 1.0}
 
-    en_dusuk = float(adaylar.min())
-    tahmin = olasiliklar >= en_dusuk
+    en_iyi = max(kabul, key=lambda n: n["duyarlilik"])
     return {
-        "yardim_esik": round(en_dusuk, 4),
-        "yardim_duyarlilik_esikli": round(float(tahmin[pozitif].mean()), 4),
-        "yardim_hedef_tutmadi": 1.0,
+        "yardim_esik": en_iyi["esik"],
+        "yardim_duyarlilik_esikli": en_iyi["duyarlilik"],
+        "yardim_kesinlik_esikli": en_iyi["kesinlik"],
+        "yardim_yanlis_pozitif_orani": en_iyi["yanlis_pozitif_orani"],
+        "yardim_hedef_tutmadi": float(en_iyi["duyarlilik"] < HEDEF_YARDIM_DUYARLILIK),
     }
 
 
@@ -273,7 +316,9 @@ def degerlendir(model, yukleyici, cihaz: str) -> dict[str, float]:
             sonuc["yardim_duyarlilik_argmax"] = round(
                 float((tahmin[pozitif] == 1).mean()) if pozitif.any() else 0.0, 4
             )
-            sonuc.update(yardim_esigi(np.concatenate(yardim_olasilik), gercek))
+            olasilik = np.concatenate(yardim_olasilik)
+            sonuc.update(yardim_esigi(olasilik, gercek))
+            sonuc["yardim_egri"] = calisma_noktalari(olasilik, gercek)  # type: ignore[assignment]
     return sonuc
 
 
@@ -391,7 +436,17 @@ def egit(ayarlar: Ayarlar) -> dict:
         metrikler["epok"] = epok
         metrikler["egitim_kaybi"] = round(toplam_kayip / max(len(egitim_yukleyici), 1), 4)
         gecmis.append(metrikler)
+        egri = metrikler.pop("yardim_egri", None)
         print(f"  → {json.dumps(metrikler, ensure_ascii=False)}")
+        if egri:
+            print("     Kural 0 çalışma noktaları (duyarlılık → maliyet):")
+            for n in egri:
+                print(
+                    f"       hedef {n['hedef_duyarlilik']:.2f} → duyarlılık "
+                    f"{n['duyarlilik']:.4f} · kesinlik {n['kesinlik']:.4f} · "
+                    f"yanlış pozitif {n['yanlis_pozitif_orani']:.4f}"
+                )
+            metrikler["yardim_egri"] = egri
 
         # Seçim ölçütü aşamaya göre değişir. 2. aşamada Türkçe başarım tek başına
         # yeterli değildir: yardım çağrısı başlığını unutmuş bir kontrol noktası
