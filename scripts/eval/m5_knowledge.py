@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT / "libs" / "krizkalkan-core" / "src"))
 
 from krizkalkan_core.knowledge import corpus, engine  # noqa: E402
 from krizkalkan_core.knowledge.retriever import Retriever  # noqa: E402
+from krizkalkan_core.models.cards import Measurement, ModelCard  # noqa: E402
 from krizkalkan_core.models.runtime import model_root  # noqa: E402
 from krizkalkan_core.text.lexicon import normalize  # noqa: E402
 
@@ -285,6 +286,63 @@ def rapor_yaz(
     return RAPOR
 
 
+def kart_yaz(gomme: Sonuc, dizin: Path, kayit_sayisi: int) -> Path:
+    """Ölçülen değerleri model kartına yazar.
+
+    Kart yalnızca belge değildir: `models/registry.py` kabul kapısı bu kartı
+    okur ve eşiği karşılamayan ağırlığı yüklemez. Ölçüm yapılmadan model
+    üretime giremez — bu, disiplin meselesi değil yapısal bir kısıt.
+    """
+    n = len(gomme.siralar)
+    kart = ModelCard(
+        name="m5_retriever",
+        module="M5",
+        title="Kriz Bilgi Havuzu Geri Getirici",
+        version="0.1.0",
+        base_model="intfloat/multilingual-e5-base (int8 ONNX)",
+        purpose=(
+            "Kullanıcı metninden çıkarılan iddiaya en yakın resmî kayıtları bulur. "
+            "Karar vermez; aday üretir. Kararı M5 çıkarım katmanı verir."
+        ),
+        training_data=[
+            f"DMM Dezenformasyon Bültenleri (CC BY 4.0) — {kayit_sayisi:,} kayıt indekslendi",
+            "Model ince ayar görmedi; hazır çok dilli gömme modeli kullanıldı",
+        ],
+        training_procedure=(
+            "İnce ayar yok. Kodlayıcı int8 dinamik nicelemeyle (per_channel) ONNX'e "
+            "aktarıldı; indeks ve sorgu aynı kodlayıcıyla gömülür."
+        ),
+        hyperparameters={"maks_uzunluk": 192, "onek": "query:/passage:", "niceleme": "int8"},
+        split_strategy="Değerlendirme kümesi elle yazılmış yeniden ifadelerden oluşur",
+        measurements=[
+            Measurement("recall1", round(gomme.recall1, 4), "elle yazılmış yeniden ifadeler", n),
+            Measurement("recall5", round(gomme.recall5, 4), "elle yazılmış yeniden ifadeler", n),
+            Measurement("mrr", round(gomme.mrr, 4), "elle yazılmış yeniden ifadeler", n),
+        ],
+        known_limits=[
+            "Benzerlik skoru tek başına 'aynı iddia' ile 'benzer konu'yu AYIRAMAZ; "
+            "ölçüldü ve raporlandı (docs/metrikler/m5.md · ayrım analizi). Karar "
+            "katmanı olmadan kullanılmamalıdır.",
+            f"Değerlendirme kümesi küçüktür (n={n}); güven aralığı geniştir.",
+            "Havuz yalnızca tekzip kayıtları içerir (DMM); DESTEKLİYOR sınıfı için "
+            "AFAD/valilik duyuruları ayrıca gereklidir.",
+            "Türkçe dışı ve bölgesel ağız başarımı ölçülmedi.",
+        ],
+        ethical_notes=[
+            "Yanlış eşleşme, kullanıcıya 'resmî kaynak seni yalanlıyor' demek anlamına "
+            "gelir; bu nedenle karar eşiği duyarlılık değil kesinlik lehine ayarlanır.",
+        ],
+        out_of_scope=[
+            "Tek başına doğruluk hükmü vermek",
+            "Havuzda karşılığı olmayan iddiaları yanlış saymak",
+        ],
+        license="Model: MIT (e5) · Veri: CC BY 4.0 (DMM)",
+        git_commit=_git_commit(),
+    )
+    kart.save(dizin)
+    return kart.write_markdown(REPO_ROOT / "docs" / "model-kartlari")
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--sadece-sozluk", action="store_true", help="gömme modeli olmadan çalıştır")
@@ -331,7 +389,9 @@ def main() -> int:
         )
 
     yol = rapor_yaz(gomme, sozluk, tarama, len(kayitlar), ayrim)
+    kart_yolu = kart_yaz(gomme, dizin, len(kayitlar))
     print(f"\n✓ {yol.relative_to(REPO_ROOT)}")
+    print(f"✓ {kart_yolu.relative_to(REPO_ROOT)}  (kabul kapısı bu kartı okur)")
     return 0
 
 

@@ -189,6 +189,8 @@ registry.register(
         title="Kriz bilgi havuzu geri getirici (e5 + FAISS)",
         files=GEREKLI_DOSYALAR,
         loader=_yukle,
+        kabul_metrigi="recall5",
+        kabul_esigi=0.6,
     )
 )
 

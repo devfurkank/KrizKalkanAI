@@ -129,3 +129,80 @@ def test_model_karti_olcum_n_degerini_tasir(tmp_path: Path) -> None:
 
 def test_kart_yoksa_none_doner(tmp_path: Path) -> None:
     assert ModelCard.load(tmp_path) is None
+
+
+# ─────────────────── Kabul kapısı ───────────────────
+#
+# Yarım eğitilmiş bir ağırlık, hiç ağırlık olmamasından kötüdür: sistem sessizce
+# yanlış cevap vermeye başlar ve bu sunum sırasında fark edilmez. Kapı, ölçülmemiş
+# veya eşiğin altında ölçülmüş modelin yüklenmesini yapısal olarak engeller.
+
+
+def _kapili_spec(esik: float = 0.70) -> ModelSpec:
+    return ModelSpec(
+        name="kapili_model",
+        module="M5",
+        title="Kapı testi",
+        files=("model.onnx",),
+        loader=lambda _: "model",
+        kabul_metrigi="dogruluk",
+        kabul_esigi=esik,
+    )
+
+
+def _hazirla(monkeypatch, tmp_path: Path) -> ModelRegistry:
+    r = ModelRegistry()
+    r.register(_kapili_spec())
+    monkeypatch.setattr(runtime.settings, "models", True)
+    monkeypatch.setattr(runtime, "resolve_runtime", lambda: "onnx")
+    monkeypatch.setattr(runtime, "model_root", lambda: tmp_path)
+    dizin = tmp_path / "kapili_model"
+    dizin.mkdir()
+    (dizin / "model.onnx").touch()
+    return r
+
+
+def _kart(deger: float) -> ModelCard:
+    return ModelCard(
+        name="kapili_model",
+        module="M5",
+        title="Kapı testi",
+        version="0.1.0",
+        base_model="test",
+        purpose="test",
+        measurements=[Measurement("dogruluk", deger, "test kümesi", 100)],
+    )
+
+
+def test_kartsiz_model_yuklenmez(monkeypatch, tmp_path: Path) -> None:
+    r = _hazirla(monkeypatch, tmp_path)
+    assert r.get("kapili_model") is None
+    assert r.status("kapili_model") is ModelStatus.DOGRULANMAMIS
+    assert "model kartı yok" in r.reason("kapili_model")
+
+
+def test_esigin_altindaki_model_yuklenmez(monkeypatch, tmp_path: Path) -> None:
+    r = _hazirla(monkeypatch, tmp_path)
+    _kart(0.42).save(tmp_path / "kapili_model")
+
+    assert r.get("kapili_model") is None
+    assert r.status("kapili_model") is ModelStatus.DOGRULANMAMIS
+    assert "0.42" in r.reason("kapili_model")
+
+
+def test_esigi_gecen_model_yuklenir(monkeypatch, tmp_path: Path) -> None:
+    r = _hazirla(monkeypatch, tmp_path)
+    _kart(0.88).save(tmp_path / "kapili_model")
+
+    assert r.get("kapili_model") == "model"
+    assert r.status("kapili_model") is ModelStatus.HAZIR
+
+
+def test_kartta_istenen_metrik_yoksa_yuklenmez(monkeypatch, tmp_path: Path) -> None:
+    r = _hazirla(monkeypatch, tmp_path)
+    kart = _kart(0.95)
+    kart.measurements = [Measurement("baska_metrik", 0.99, "test", 100)]
+    kart.save(tmp_path / "kapili_model")
+
+    assert r.get("kapili_model") is None
+    assert "ölçümü yok" in r.reason("kapili_model")
