@@ -1,4 +1,4 @@
-.PHONY: help setup setup-node setup-python setup-models model-durum up down logs demo dev-web dev-api dev-worker test lint format clean
+.PHONY: help setup setup-node setup-python setup-models model-durum veri m5-index up down logs demo dev-web dev-api dev-worker test lint format clean
 
 PY := python3.12
 VENV := .venv
@@ -9,6 +9,8 @@ help:
 	@echo "  make setup        Tüm bağımlılıkları kurar (Node + Python)"
 	@echo "  make setup-models Çıkarım bağımlılıklarını kurar (ONNX, FAISS, sklearn)"
 	@echo "  make model-durum  Yüklü model ağırlıklarını ve çalışma zamanını gösterir"
+	@echo "  make veri         Veri kümelerini indirir, uyumlaştırır, böler"
+	@echo "  make m5-index     M5 bilgi havuzunu ve geri getirme indeksini kurar"
 	@echo "  make up           Altyapıyı başlatır (Postgres, Redis, MinIO)"
 	@echo "  make down         Altyapıyı durdurur"
 	@echo "  make dev-web      Next.js geliştirme sunucusu (:3000)"
@@ -42,6 +44,17 @@ model-durum:
 	import krizkalkan_core.pipeline; import json; \
 	print(json.dumps(describe(), ensure_ascii=False, indent=2)); \
 	print(json.dumps(registry.report(), ensure_ascii=False, indent=2))"
+
+# Metin veri kümeleri: indirme → şema doğrulama → uyumlaştırma → olay bazlı bölme
+veri:
+	$(VENV)/bin/python scripts/data/fetch_text.py
+	$(VENV)/bin/python scripts/data/harmonize.py
+
+# M5: DMM havuzu (JSONL) + int8 ONNX kodlayıcı + gömme indeksi.
+# Ağırlıklar commit edilmez; bu komut onları yeniden üretir.
+m5-index:
+	$(VENV)/bin/python scripts/data/build_knowledge.py
+	$(VENV)/bin/python scripts/data/build_index.py
 
 up:
 	docker compose -f infra/compose.yaml up -d
