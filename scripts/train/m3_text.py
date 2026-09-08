@@ -494,6 +494,77 @@ def egit(ayarlar: Ayarlar) -> dict:
     return rapor
 
 
+def disa_aktar(kaynak: Path, hedef: Path, omurga: str) -> int:
+    """Eğitilmiş çok görevli modeli int8 ONNX'e çevirir.
+
+    Çıktı: hedef/{model.onnx, tokenizer.json, kart.json} — çekirdeğin
+    `text/model.py` modülü bu adları arar. Model kartı varsa kopyalanır;
+    kabul kapısı onu okur ve ölçümü olmayan ağırlığı yüklemez.
+
+    Üç başlık tek grafta döner (claim, yanlis, yardim); çağıran taraf hangi
+    başlığı kullanacağına kendi karar verir.
+    """
+    import shutil
+
+    from onnxruntime.quantization import QuantType, quantize_dynamic
+    from transformers import AutoTokenizer
+
+    hedef.mkdir(parents=True, exist_ok=True)
+    tokenizer = AutoTokenizer.from_pretrained(kaynak)
+    tokenizer.backend_tokenizer.save(str(hedef / "tokenizer.json"))
+
+    model = CokGorevliModel(omurga).eval()
+    model.load_state_dict(torch.load(kaynak / "model.pt", map_location="cpu"))
+
+    class UcBaslik(nn.Module):
+        """Sözlük yerine demet döndürür: ONNX sözlük çıktısını desteklemez."""
+
+        def __init__(self, govde: CokGorevliModel) -> None:
+            super().__init__()
+            self.govde = govde
+
+        def forward(self, input_ids, attention_mask):
+            c = self.govde(input_ids=input_ids, attention_mask=attention_mask)
+            return c["claim"], c["yanlis"], c["yardim"]
+
+    ornek = tokenizer("örnek metin", return_tensors="pt", padding="max_length", max_length=128)
+    ham = hedef / "_model_fp32.onnx"
+    torch.onnx.export(
+        UcBaslik(model).eval(),
+        (ornek["input_ids"], ornek["attention_mask"]),
+        str(ham),
+        input_names=["input_ids", "attention_mask"],
+        output_names=["claim_logits", "yanlis_logits", "yardim_logits"],
+        dynamic_axes={
+            "input_ids": {0: "yigin", 1: "uzunluk"},
+            "attention_mask": {0: "yigin", 1: "uzunluk"},
+            "claim_logits": {0: "yigin"},
+            "yanlis_logits": {0: "yigin"},
+            "yardim_logits": {0: "yigin"},
+        },
+        opset_version=18,
+        # dynamo=False: yeni aktarıcının grafı onnxruntime'ın niceleme öncesi
+        # şekil çıkarımını düşürüyor (M5'te de aynı sorun yaşandı).
+        dynamo=False,
+    )
+    quantize_dynamic(
+        str(ham), str(hedef / "model.onnx"), weight_type=QuantType.QInt8, per_channel=True
+    )
+    ham.unlink(missing_ok=True)
+
+    if (kart := kaynak / "kart.json").exists():
+        shutil.copy(kart, hedef / "kart.json")
+        print("  ✓ model kartı kopyalandı")
+    else:
+        print("  ⚠️ model kartı YOK — kabul kapısı bu ağırlığı yüklemez.")
+        print("     Önce: python scripts/eval/m3_text.py --kontrol-noktasi", kaynak)
+
+    print(
+        f"✓ int8 ONNX: {hedef / 'model.onnx'} · {(hedef / 'model.onnx').stat().st_size / 1e6:.0f} MB"
+    )
+    return 0
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--asama", type=int, default=1, choices=(1, 2))
@@ -504,6 +575,8 @@ def main() -> int:
     a.add_argument("--devam", type=Path, default=None, help="önceki aşamanın çıktı dizini")
     a.add_argument("--cikti", type=Path, default=None)
     a.add_argument("--smoke", action="store_true", help="küçük altkümeyle hızlı doğrulama")
+    a.add_argument("--disa-aktar", type=Path, default=None, help="eğitilmiş model dizini → ONNX")
+    a.add_argument("--onnx-cikti", type=Path, default=None)
     a.add_argument(
         "--replay",
         type=float,
@@ -517,6 +590,13 @@ def main() -> int:
         help="Kural 0 başlığının kayıp ağırlığı",
     )
     args = a.parse_args()
+
+    if args.disa_aktar:
+        return disa_aktar(
+            args.disa_aktar,
+            args.onnx_cikti or (REPO_ROOT / "models" / "m3_text"),
+            args.omurga,
+        )
 
     ayarlar = Ayarlar(
         omurga=args.omurga,

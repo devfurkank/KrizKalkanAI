@@ -93,7 +93,8 @@ def resolve_device() -> str:
             return "cuda"
         if torch.backends.mps.is_available():
             return "mps"
-    except Exception:  # noqa: BLE001 — tespit hatası çıkarımı engellememeli
+    # Cihaz tespitindeki bir hata çıkarımı engellememeli; CPU'ya düşülür.
+    except Exception:
         return "cpu"
     return "cpu"
 

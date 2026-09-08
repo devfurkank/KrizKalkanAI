@@ -174,7 +174,9 @@ class ModelRegistry:
 
         try:
             entry.instance = spec.loader(directory)
-        except Exception as exc:  # noqa: BLE001 — yükleme hatası sistemi durdurmamalı
+        # Yükleme hatası sistemi durdurmamalı: hangi hata olursa olsun
+        # kural tabanlı yola düşülür.
+        except Exception as exc:
             entry.status = ModelStatus.YUKLEME_HATASI
             entry.detail = f"{type(exc).__name__}: {exc}"
             entry.instance = None
