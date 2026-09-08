@@ -1,4 +1,4 @@
-.PHONY: help setup setup-node setup-python up down logs demo dev-web dev-api dev-worker test lint format clean
+.PHONY: help setup setup-node setup-python setup-models model-durum up down logs demo dev-web dev-api dev-worker test lint format clean
 
 PY := python3.12
 VENV := .venv
@@ -7,6 +7,8 @@ help:
 	@echo "KrizKalkan AI — kullanılabilir komutlar:"
 	@echo "  make demo         SUNUM: API + arayüzü birlikte başlatır"
 	@echo "  make setup        Tüm bağımlılıkları kurar (Node + Python)"
+	@echo "  make setup-models Çıkarım bağımlılıklarını kurar (ONNX, FAISS, sklearn)"
+	@echo "  make model-durum  Yüklü model ağırlıklarını ve çalışma zamanını gösterir"
 	@echo "  make up           Altyapıyı başlatır (Postgres, Redis, MinIO)"
 	@echo "  make down         Altyapıyı durdurur"
 	@echo "  make dev-web      Next.js geliştirme sunucusu (:3000)"
@@ -28,6 +30,18 @@ setup-python:
 	$(VENV)/bin/pip install -e "libs/krizkalkan-core[dev]"
 	$(VENV)/bin/pip install -e "apps/api[dev]"
 	$(VENV)/bin/pip install -e "apps/worker[dev]"
+
+setup-models:
+	$(VENV)/bin/pip install -e "libs/krizkalkan-core[models]"
+	@echo "Çıkarım bağımlılıkları kuruldu. Ağırlıklar: python scripts/data/fetch_weights.py"
+
+# Ağırlık dizininin ve çalışma zamanının durumunu raporlar.
+# Sunum öncesi son kontrol komutu budur.
+model-durum:
+	@$(VENV)/bin/python -c "from krizkalkan_core.models import describe, registry; \
+	import krizkalkan_core.pipeline; import json; \
+	print(json.dumps(describe(), ensure_ascii=False, indent=2)); \
+	print(json.dumps(registry.report(), ensure_ascii=False, indent=2))"
 
 up:
 	docker compose -f infra/compose.yaml up -d

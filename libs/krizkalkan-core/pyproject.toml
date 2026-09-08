@@ -16,6 +16,32 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Çıkarım katmanı: demo makinesinde (CPU) kurulur.
+# Ağır eğitim bağımlılıkları bilinçli olarak ayrıdır; çekirdek kütüphane
+# ML paketleri olmadan da içe aktarılabilir kalmalıdır.
+models = [
+    "onnxruntime>=1.20.0",
+    "numpy>=2.1.0",
+    "faiss-cpu>=1.9.0",
+    "pillow>=11.0.0",
+    "imagehash>=4.3.2",
+    "scikit-learn>=1.6.0",
+    "lightgbm>=4.5.0",
+    "tokenizers>=0.21.0",
+]
+
+# Yalnızca Kaggle/eğitim ortamında kurulur; yerel demoya girmez.
+train = [
+    "torch>=2.5.0",
+    "transformers>=4.46.0",
+    "datasets>=3.1.0",
+    "sentence-transformers>=3.3.0",
+    "accelerate>=1.1.0",
+    "evaluate>=0.4.3",
+    "onnx>=1.17.0",
+    "huggingface-hub>=0.26.0",
+]
+
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
