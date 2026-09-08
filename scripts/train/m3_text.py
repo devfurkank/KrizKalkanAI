@@ -55,6 +55,12 @@ YANLIS_SINIFLARI: tuple[str, ...] = ("dogru", "yanlis", "diger")
 #: Etiketi olmayan örnekler için kayıp maskesi değeri.
 YOK = -100
 
+#: Kural 0'ın duyarlılık hedefi (rapor 3.2). Bu sınıfta argmax (0,5 eşiği)
+#: kullanılmaz: pozitifler verinin %3'ü olduğu için model çoğunlukla "hayır"
+#: diyerek yüksek doğruluk alır ama yardım çağrılarının yarısını kaçırır.
+#: Eşik, hedef duyarlılığı tutturacak biçimde doğrulama kümesinde aranır.
+HEDEF_YARDIM_DUYARLILIK = 0.98
+
 #: Kaggle'da /kaggle/working, yerelde depo altındaki cikti/ dizini.
 VARSAYILAN_CIKTI = (
     Path("/kaggle/working") if Path("/kaggle/working").exists() else REPO_ROOT / "cikti"
@@ -72,7 +78,9 @@ class Ayarlar:
     isinma_orani: float = 0.06
     agirlik_sonumu: float = 0.01
     #: Kural 0 sınıfı azınlıktadır ve duyarlılığı kritiktir; kaybı ağırlıklanır.
-    yardim_kayip_agirligi: float = 3.0
+    yardim_kayip_agirligi: float = 8.0
+    #: 2. aşamada karıştırılacak 1. aşama örneği oranı (unutmayı engeller).
+    replay: float = 1.0
     sabir: int = 2
     tohum: int = 42
     smoke: bool = False
@@ -188,11 +196,57 @@ def makro_f1(gercek: np.ndarray, tahmin: np.ndarray, sinif_sayisi: int) -> float
     return float(np.mean(skorlar)) if skorlar else 0.0
 
 
+def yardim_esigi(olasiliklar: np.ndarray, gercek: np.ndarray) -> dict[str, float]:
+    """Kural 0 eşiğini duyarlılık hedefine göre bulur.
+
+    Hedefi tutturan eşikler arasından EN YÜKSEĞİ seçilir: hedef duyarlılık
+    sağlandıktan sonra gereksiz yanlış pozitif üretmenin anlamı yoktur.
+    Hiçbir eşik hedefi tutturamıyorsa en düşük eşik ve ulaşılan duyarlılık
+    dürüstçe raporlanır.
+    """
+    pozitif = gercek == 1
+    if not pozitif.any():
+        return {}
+
+    adaylar = np.unique(np.round(olasiliklar, 4))
+    en_iyi: dict[str, float] = {}
+    for esik in adaylar:
+        tahmin = olasiliklar >= esik
+        duyarlilik = float(tahmin[pozitif].mean())
+        if duyarlilik < HEDEF_YARDIM_DUYARLILIK:
+            continue
+        tp = int((tahmin & pozitif).sum())
+        fp = int((tahmin & ~pozitif).sum())
+        en_iyi = {
+            "yardim_esik": round(float(esik), 4),
+            "yardim_duyarlilik_esikli": round(duyarlilik, 4),
+            "yardim_kesinlik_esikli": round(tp / (tp + fp), 4) if tp + fp else 0.0,
+            # Kural 0'ın maliyeti: kaç masum içerik korumaya alınıyor?
+            "yardim_yanlis_pozitif_orani": round(float(fp / max(int((~pozitif).sum()), 1)), 4),
+        }
+    if en_iyi:
+        return en_iyi
+
+    en_dusuk = float(adaylar.min())
+    tahmin = olasiliklar >= en_dusuk
+    return {
+        "yardim_esik": round(en_dusuk, 4),
+        "yardim_duyarlilik_esikli": round(float(tahmin[pozitif].mean()), 4),
+        "yardim_hedef_tutmadi": 1.0,
+    }
+
+
 @torch.no_grad()
 def degerlendir(model, yukleyici, cihaz: str) -> dict[str, float]:
-    """Üç görev için ayrı metrikler; yardım çağrısında duyarlılık öne çıkar."""
+    """Üç görev için ayrı metrikler; yardım çağrısında duyarlılık öne çıkar.
+
+    Yardım çağrısı başlığı iki kez raporlanır: argmax ile (karşılaştırma için)
+    ve duyarlılık hedefini tutturan eşikle. Üretimde ikincisi kullanılır.
+    """
     model.eval()
     biriken: dict[str, list] = {a: [[], []] for a in ("claim", "yanlis", "yardim")}
+    yardim_olasilik: list[np.ndarray] = []
+
     for yigin in yukleyici:
         girdi = {k: yigin[k].to(cihaz) for k in ("input_ids", "attention_mask")}
         ciktilar = model(**girdi)
@@ -202,6 +256,9 @@ def degerlendir(model, yukleyici, cihaz: str) -> dict[str, float]:
             if maske.any():
                 biriken[ad][0].append(hedef[maske])
                 biriken[ad][1].append(ciktilar[ad].argmax(-1).cpu().numpy()[maske])
+                if ad == "yardim":
+                    olasilik = torch.softmax(ciktilar[ad], dim=-1)[:, 1].cpu().numpy()
+                    yardim_olasilik.append(olasilik[maske])
 
     sonuc: dict[str, float] = {}
     sinif_sayisi = {"claim": len(CLAIM_SINIFLARI), "yanlis": len(YANLIS_SINIFLARI), "yardim": 2}
@@ -213,21 +270,43 @@ def degerlendir(model, yukleyici, cihaz: str) -> dict[str, float]:
         sonuc[f"{ad}_dogruluk"] = round(float((gercek == tahmin).mean()), 4)
         if ad == "yardim":
             pozitif = gercek == 1
-            # Kural 0'ın tek anlamlı metriği: yardım çağrılarının kaçını yakaladık.
-            sonuc["yardim_duyarlilik"] = round(
+            sonuc["yardim_duyarlilik_argmax"] = round(
                 float((tahmin[pozitif] == 1).mean()) if pozitif.any() else 0.0, 4
             )
+            sonuc.update(yardim_esigi(np.concatenate(yardim_olasilik), gercek))
     return sonuc
 
 
 # ─────────────────────────── Eğitim ───────────────────────────
 
 
-def asama_verisi(df: pd.DataFrame, asama: int) -> pd.DataFrame:
-    """Aşamaya göre kaynak süzgeci."""
+def asama_verisi(
+    df: pd.DataFrame, asama: int, replay_orani: float = 0.0, tohum: int = 42
+) -> pd.DataFrame:
+    """Aşamaya göre kaynak süzgeci; 2. aşamada tekrar (replay) karışımı.
+
+    Neden tekrar gerekli: 2. aşamanın Türkçe verisinde `claim_type` ve
+    `yardim_cagrisi` etiketi yoktur. O başlıklar eğitim sinyali almazken
+    paylaşılan gövde güncellenir ve 1. aşamada öğrenilen — özellikle Kural 0'ı
+    besleyen — bilgi silinebilir. 1. aşamadan bir örneklem karıştırmak bu
+    unutmayı engeller; karışım aynı zamanda 2. aşama değerlendirmesinde o
+    başlıkların GÖRÜNÜR kalmasını sağlar.
+    """
+    asama1 = df[df["kaynak"] == "D10"]
     if asama == 1:
-        return df[df["kaynak"] == "D10"]
-    return df[df["kaynak"] != "D10"]
+        return asama1
+
+    asama2 = df[df["kaynak"] != "D10"]
+    if replay_orani <= 0:
+        return asama2
+
+    adet = min(int(len(asama2) * replay_orani), len(asama1))
+    tekrar = asama1.sample(adet, random_state=tohum)
+    return (
+        pd.concat([asama2, tekrar], ignore_index=True)
+        .sample(frac=1.0, random_state=tohum)
+        .reset_index(drop=True)
+    )
 
 
 def egit(ayarlar: Ayarlar) -> dict:
@@ -242,8 +321,20 @@ def egit(ayarlar: Ayarlar) -> dict:
     print(f"cihaz: {cihaz} · omurga: {ayarlar.omurga} · aşama: {ayarlar.asama}")
 
     islenmis = REPO_ROOT / "data" / "processed"
-    egitim = asama_verisi(pd.read_parquet(islenmis / "train.parquet"), ayarlar.asama)
-    dogrulama = asama_verisi(pd.read_parquet(islenmis / "val.parquet"), ayarlar.asama)
+    egitim = asama_verisi(
+        pd.read_parquet(islenmis / "train.parquet"),
+        ayarlar.asama,
+        ayarlar.replay,
+        ayarlar.tohum,
+    )
+    # Doğrulamada tekrar oranı sabittir: 2. aşamada 1. aşamanın başlıkları
+    # ölçülemezse unutma fark edilmez.
+    dogrulama = asama_verisi(
+        pd.read_parquet(islenmis / "val.parquet"),
+        ayarlar.asama,
+        1.0 if ayarlar.asama == 2 else 0.0,
+        ayarlar.tohum,
+    )
 
     if ayarlar.smoke:
         egitim, dogrulama = egitim.head(256), dogrulama.head(128)
@@ -302,13 +393,17 @@ def egit(ayarlar: Ayarlar) -> dict:
         gecmis.append(metrikler)
         print(f"  → {json.dumps(metrikler, ensure_ascii=False)}")
 
-        # Seçim ölçütü aşamaya göre değişir: 1. aşamada iddia tipi ve yardım
-        # çağrısı, 2. aşamada Türkçe yanlış bilgi başlığı belirleyicidir.
-        olcut = (
-            metrikler.get("claim_makro_f1", 0) + metrikler.get("yardim_duyarlilik", 0)
-            if ayarlar.asama == 1
-            else metrikler.get("yanlis_makro_f1", 0)
-        )
+        # Seçim ölçütü aşamaya göre değişir. 2. aşamada Türkçe başarım tek başına
+        # yeterli değildir: yardım çağrısı başlığını unutmuş bir kontrol noktası
+        # seçilmemelidir, bu yüzden ölçüte eşikli duyarlılık de girer.
+        if ayarlar.asama == 1:
+            olcut = metrikler.get("claim_makro_f1", 0) + metrikler.get(
+                "yardim_duyarlilik_esikli", 0
+            )
+        else:
+            olcut = metrikler.get("yanlis_makro_f1", 0) + metrikler.get(
+                "yardim_duyarlilik_esikli", 0
+            )
         if olcut > en_iyi:
             en_iyi, sabirsizlik = olcut, 0
             torch.save(model.state_dict(), ayarlar.cikti / "model.pt")
@@ -334,6 +429,7 @@ def egit(ayarlar: Ayarlar) -> dict:
             "ogrenme_orani": ayarlar.ogrenme_orani,
             "maks_uzunluk": ayarlar.maks_uzunluk,
             "yardim_kayip_agirligi": ayarlar.yardim_kayip_agirligi,
+            "replay": ayarlar.replay,
         },
     }
     (ayarlar.cikti / "egitim_raporu.json").write_text(
@@ -353,6 +449,18 @@ def main() -> int:
     a.add_argument("--devam", type=Path, default=None, help="önceki aşamanın çıktı dizini")
     a.add_argument("--cikti", type=Path, default=None)
     a.add_argument("--smoke", action="store_true", help="küçük altkümeyle hızlı doğrulama")
+    a.add_argument(
+        "--replay",
+        type=float,
+        default=Ayarlar.replay,
+        help="2. aşamaya karıştırılacak 1. aşama örneği oranı (0 = kapalı)",
+    )
+    a.add_argument(
+        "--yardim-agirlik",
+        type=float,
+        default=Ayarlar.yardim_kayip_agirligi,
+        help="Kural 0 başlığının kayıp ağırlığı",
+    )
     args = a.parse_args()
 
     ayarlar = Ayarlar(
@@ -363,6 +471,8 @@ def main() -> int:
         ogrenme_orani=args.lr,
         devam=args.devam,
         smoke=args.smoke,
+        replay=args.replay,
+        yardim_kayip_agirligi=args.yardim_agirlik,
     )
     if args.cikti:
         ayarlar.cikti = args.cikti
