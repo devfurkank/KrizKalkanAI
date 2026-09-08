@@ -8,6 +8,7 @@ için, olasılıksal sentetik medya analizinden önce çalıştırılır.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from krizkalkan_core.provenance import corpus, imaging, index
@@ -19,8 +20,26 @@ from krizkalkan_core.provenance.hashing import (
     similarity,
 )
 from krizkalkan_core.schemas import Evidence, ProvenanceMatch, Signal
+from krizkalkan_core.text.lexicon import normalize
 
 logger = logging.getLogger(__name__)
+
+
+def _konum_celiskisi(iddia_konumu: str | None, kayit_konumu: str | None) -> bool:
+    """Metindeki konum ile kaydın konumu çelişiyor mu?
+
+    Karşılaştırma `normalize()` üzerinden yapılır, casefold() ile değil:
+    Python'da "İZMİR".casefold() birleşik noktalı i üretir ve "izmir" ile
+    eşleşmez. Aynı tuzak M5'te derece etiketlerinde de yaşandı.
+
+    Kayıt konumu "Adıyaman/Şanlıurfa" gibi birleşik olabilir; iddia edilen
+    konum parçalardan biriyle örtüşüyorsa çelişki yoktur.
+    """
+    if not iddia_konumu or not kayit_konumu:
+        return False
+    iddia = normalize(iddia_konumu)
+    parcalar = [normalize(p) for p in re.split(r"[/,]", kayit_konumu) if p.strip()]
+    return not any(iddia in p or p in iddia for p in parcalar if p)
 
 
 def _medya_yolu(fingerprint: str) -> Path | None:
@@ -39,7 +58,9 @@ def _medya_yolu(fingerprint: str) -> Path | None:
     return yol if yol.is_file() and imaging.gorsel_mi(yol) else None
 
 
-def _indeks_eslesmesi(yol: Path) -> tuple[ProvenanceMatch, list[Evidence]] | None:
+def _indeks_eslesmesi(
+    yol: Path, claimed_location: str | None = None
+) -> tuple[ProvenanceMatch, list[Evidence]] | None:
     """Gerçek görüntüyü köken indeksinde arar; indeks yoksa None."""
     indeks = index.get()
     if indeks is None:
@@ -65,10 +86,15 @@ def _indeks_eslesmesi(yol: Path) -> tuple[ProvenanceMatch, list[Evidence]] | Non
 
     en_iyi = adaylar[0]
     kayit = en_iyi.kayit
+    celiski = _konum_celiskisi(claimed_location, kayit.konum)
     return (
         ProvenanceMatch(
             matched=True,
             similarity=en_iyi.benzerlik,
+            context_conflict=celiski,
+            conflict_detail=(
+                f"metin: {claimed_location} · kayıt: {kayit.konum}" if celiski else None
+            ),
             first_published=kayit.ilk_yayin,
             source=kayit.lisans or "Wikimedia Commons",
             original_event=kayit.olay,
@@ -87,6 +113,17 @@ def _indeks_eslesmesi(yol: Path) -> tuple[ProvenanceMatch, list[Evidence]] | Non
                 kind="kayit",
                 label=f"Özgün olay: {kayit.olay}",
                 detail=f"Özgün konum: {kayit.konum}",
+            ),
+            *(
+                [
+                    Evidence(
+                        kind="kayit",
+                        label="Metindeki konum ile eşleşen kaydın konumu uyuşmuyor",
+                        detail=f"metin: {claimed_location} · kayıt: {kayit.konum}",
+                    )
+                ]
+                if celiski
+                else []
             ),
         ],
     )
@@ -145,7 +182,7 @@ def analyse(
     # Gerçek görüntü geldiyse indeks üzerinden ara; demo parmak izleri
     # tohumlanmış korpusla eşleşmeye devam eder.
     if (yol := _medya_yolu(fingerprint)) is not None:
-        sonuc = _indeks_eslesmesi(yol)
+        sonuc = _indeks_eslesmesi(yol, claimed_location)
         if sonuc is not None:
             gercek_match, kanitlar = sonuc
             return gercek_match, [
@@ -199,21 +236,30 @@ def analyse(
     ]
 
     # Metindeki konum ile kaydın konumu çelişiyor mu?
-    location_conflict = False
-    if claimed_location and match.original_location:
-        location_conflict = claimed_location.casefold() not in match.original_location.casefold()
-        if location_conflict:
-            evidence.append(
-                Evidence(
-                    kind="kayit",
-                    label="Metindeki konum ile eşleşen kaydın konumu uyuşmuyor",
-                    detail=f"metin: {claimed_location} · kayıt: {match.original_location}",
-                )
+    location_conflict = _konum_celiskisi(claimed_location, match.original_location)
+    if location_conflict:
+        evidence.append(
+            Evidence(
+                kind="kayit",
+                label="Metindeki konum ile eşleşen kaydın konumu uyuşmuyor",
+                detail=f"metin: {claimed_location} · kayıt: {match.original_location}",
             )
+        )
 
     score = match.similarity
     if location_conflict:
         score = min(1.0, score + 0.05)
+
+    match = match.model_copy(
+        update={
+            "context_conflict": location_conflict,
+            "conflict_detail": (
+                f"metin: {claimed_location} · kayıt: {match.original_location}"
+                if location_conflict
+                else None
+            ),
+        }
+    )
 
     return match, [
         Signal(

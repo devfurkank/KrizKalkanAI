@@ -80,7 +80,12 @@ def fuse(
         return [by_key[k] for k in keys if k in by_key and not by_key[k].abstained]
 
     # ── 1. Köken önceliği: yanlış bağlam kesin kanıttır ──
-    if provenance and provenance.matched and prov >= 0.60:
+    #
+    # Eşleşmenin TEK BAŞINA yanlış bağlam anlamına gelmediğine dikkat: görüntü
+    # gerçekten o olaya aitse ve metin de onu söylüyorsa bağlam doğrudur ve
+    # eşleşme içeriği DESTEKLEYEN bir kanıttır. Sınıf ancak kaydın konumu/olayı
+    # metindeki iddiayla çeliştiğinde kurulur.
+    if provenance and provenance.matched and prov >= 0.60 and provenance.context_conflict:
         return (
             Verdict.YANLIS_BAGLAM,
             min(0.97, prov),

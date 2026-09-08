@@ -72,6 +72,13 @@ class ProvenanceMatch(BaseModel):
     original_location: str | None = None
     matched_frame: str | None = None
     corpus_id: str | None = None
+    #: Eşleşen kaydın konumu/olayı metindeki iddiayla çelişiyor mu?
+    #:
+    #: Eşleşmenin kendisi bir suçlama DEĞİLDİR: görüntü gerçekten o olaya aitse
+    #: ve metin de onu söylüyorsa bağlam DOĞRUDUR. "Yanlış bağlam" sınıfı ancak
+    #: çelişki varsa kurulabilir.
+    context_conflict: bool = False
+    conflict_detail: str | None = None
 
 
 class ExtractedClaim(BaseModel):
