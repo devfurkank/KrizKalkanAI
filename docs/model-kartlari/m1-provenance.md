@@ -5,8 +5,8 @@
 | Model adı | `m1_provenance` |
 | Temel model | dHash + pHash (8×8, 64 bit) |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-08T16:33:17+00:00 |
-| Git commit | `ab2b653` |
+| Oluşturulma | 2026-09-08T16:49:07+00:00 |
+| Git commit | `77df8a4` |
 | Lisans | Veri: Wikimedia Commons (kayıt başına lisans indekste tutulur) |
 
 ## Amaç ve kapsam
@@ -15,7 +15,7 @@ Bir görüntünün daha önce, başka bir tarih veya olayda yayımlanıp yayıml
 
 ## Eğitim verisi
 
-- Wikimedia Commons açık lisanslı Türkiye afet görüntüleri — 456 kayıt
+- Wikimedia Commons açık lisanslı Türkiye afet görüntüleri — 1,758 kayıt
 - Her kayıt olay ve il düzeyinde konum etiketi taşır
 
 ## Eğitim yordamı
@@ -35,14 +35,14 @@ Eğitim yok; algısal karma hesabı ve tam tarama indeksi.
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| recall1_temiz | 1 | dönüşümsüz sorgu | 80 | — |
-| recall1_agir_donusum | 0.6719 | kırpma/çerçeve/letterbox/döndürme ortalaması | 80 | — |
-| yanlis_eslesme_orani | 0.0167 | indeks dışı görüntüler | 60 | — |
+| recall1_temiz | 0.995 | dönüşümsüz sorgu | 200 | — |
+| recall1_agir_donusum | 0.6737 | kırpma/çerçeve/letterbox/döndürme ortalaması | 200 | — |
+| olay_disi_eslesme_orani | 0.01 | indeks dışı görüntüler | 200 | — |
 
 ## Bilinen sınırlar
 
 - Ayna çevirme algısal karmayı yapısal olarak kırar; bu saldırı ancak görsel-dil gömmesi tabanlı ikinci arama katmanıyla yakalanabilir ve o katman henüz kurulmadı.
-- İndeks 456 kayıtla sınırlıdır ve yalnızca Wikimedia Commons kaynaklıdır; haber ajansı arşivleri ve DMM'de yalanlanan görseller henüz eklenmedi.
+- İndeks 1,758 kayıtla sınırlıdır ve yalnızca Wikimedia Commons kaynaklıdır; haber ajansı arşivleri ve DMM'de yalanlanan görseller henüz eklenmedi.
 - Video desteği ffmpeg gerektirir; kurulu değilse video yolu devre dışı kalır ve modül çekinir.
 
 ## Etik değerlendirme

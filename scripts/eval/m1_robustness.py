@@ -157,20 +157,43 @@ def dayaniklilik(indeks: ProvenanceIndex, ornekler: list[str]) -> dict[str, dict
     return sonuc
 
 
-def yanlis_eslesme(indeks: ProvenanceIndex, disaridakiler: list[Path]) -> dict[str, float]:
-    """İndekste OLMAYAN görüntüler kaç kez eşleşti sayılıyor?"""
-    yanlis = 0
+def yanlis_eslesme(
+    indeks: ProvenanceIndex, disaridakiler: list[tuple[Path, str]]
+) -> dict[str, float]:
+    """İndekste olmayan görüntüler için eşleşmeleri ZARARINA göre ayırır.
+
+    Ham "eşleşti/eşleşmedi" sayımı bu korpusta yanıltıcıdır: Commons aynı
+    çekimden ardışık kareler barındırır (IDF 157 ↔ IDF 158, Arslantepe 16 ↔ 17).
+    Böyle bir eşleşme hata DEĞİLDİR — sistem "bu görüntü 2023 depremlerine ait,
+    şu tarihte yayımlandı" der ve bu doğrudur.
+
+    Zararlı olan, içeriğin BAŞKA BİR OLAYA bağlanmasıdır: kullanıcıya
+    "görüntünüz farklı bir olaya ait" demek, yanlış olduğunda sistemin en
+    görünür hatasıdır. İki oran ayrı raporlanır.
+    """
+    olay_disi = 0
+    yakin_kopya = 0
     mesafeler: list[int] = []
-    for yol in disaridakiler:
+
+    for yol, olay in disaridakiler:
         dhash, phash = imaging.karmalar(yol)
         eslesmeler = indeks.ara(dhash, phash, k=1)
         if not eslesmeler:
             continue
-        mesafeler.append(eslesmeler[0].mesafe)
-        if eslesmeler[0].eslesti:
-            yanlis += 1
+        en_iyi = eslesmeler[0]
+        mesafeler.append(en_iyi.mesafe)
+        if not en_iyi.eslesti:
+            continue
+        if en_iyi.kayit.olay == olay:
+            yakin_kopya += 1
+        else:
+            olay_disi += 1
+
+    n = max(len(disaridakiler), 1)
     return {
-        "yanlis_eslesme_orani": round(yanlis / max(len(disaridakiler), 1), 4),
+        "olay_disi_eslesme_orani": round(olay_disi / n, 4),
+        "yakin_kopya_orani": round(yakin_kopya / n, 4),
+        "ham_eslesme_orani": round((olay_disi + yakin_kopya) / n, 4),
         "ortalama_mesafe": round(sum(mesafeler) / max(len(mesafeler), 1), 2),
         "n": len(disaridakiler),
     }
@@ -208,11 +231,16 @@ def esik_taramasi(
             else:
                 dogru_mesafeler.append(999)  # doğru kayıt ilk sırada değil
 
+    # Yalnızca FARKLI OLAYA bağlanan eşleşmeler zararlıdır; aynı olaydan gelen
+    # yakın kopyalar doğru davranıştır ve eşik kararına girmemelidir.
     disari_mesafeler: list[int] = []
-    for yol in disarida:
+    for yol, olay in disarida:
         dhash, phash = imaging.karmalar(yol)
         adaylar = indeks.ara(dhash, phash, k=1)
-        disari_mesafeler.append(adaylar[0].mesafe if adaylar else 999)
+        if adaylar and adaylar[0].kayit.olay != olay:
+            disari_mesafeler.append(adaylar[0].mesafe)
+        else:
+            disari_mesafeler.append(999)
 
     return [
         {
@@ -220,7 +248,7 @@ def esik_taramasi(
             "agir_recall1": round(
                 sum(1 for m in dogru_mesafeler if m <= esik) / max(len(dogru_mesafeler), 1), 4
             ),
-            "yanlis_eslesme": round(
+            "olay_disi_eslesme": round(
                 sum(1 for m in disari_mesafeler if m <= esik) / max(len(disari_mesafeler), 1), 4
             ),
         }
@@ -263,33 +291,46 @@ def rapor_yaz(
         "",
         f"> Temiz kontrol: **{temiz:.4f}** · rapor 3.2 hedefi ≥ 0,90",
         "",
-        "## Yanlış eşleşme oranı",
+        "## Eşleşme hataları — zararına göre ayrılmış",
         "",
-        "İndekste bulunmayan görüntülerle sorgulandığında sistem kaç kez",
-        '"eşleşti" diyor? Bu sayı Recall\'dan kritiktir: yanlış bir köken',
-        'eşleşmesi kullanıcıya "bu görüntü başka bir olaya ait" demek anlamına',
-        "gelir ve sistemin en görünür hatasıdır.",
+        'Ham "eşleşti/eşleşmedi" sayımı bu korpusta yanıltıcıdır: Wikimedia Commons',
+        "aynı çekimden ardışık kareler barındırır (IDF 157 ↔ IDF 158, Arslantepe",
+        '16 ↔ 17). Böyle bir eşleşme hata DEĞİLDİR — sistem "bu görüntü 2023',
+        'depremlerine ait, şu tarihte yayımlandı" der ve bu doğrudur.',
+        "",
+        "Zararlı olan, içeriğin BAŞKA BİR OLAYA bağlanmasıdır: kullanıcıya",
+        '"görüntünüz farklı bir olaya ait" demek, yanlış olduğunda sistemin en',
+        "görünür hatasıdır. İki oran bu yüzden ayrı raporlanır.",
         "",
         "| | |",
         "|---|---|",
         f"| Sorgu | {yanlis['n']} indeks dışı görüntü |",
-        f"| Yanlış eşleşme oranı | **{yanlis['yanlis_eslesme_orani']:.4f}** |",
+        f"| **Olay dışı eşleşme (zararlı)** | **{yanlis['olay_disi_eslesme_orani']:.4f}** |",
+        f"| Yakın kopya eşleşmesi (doğru davranış) | {yanlis['yakin_kopya_orani']:.4f} |",
+        f"| Ham eşleşme oranı | {yanlis['ham_eslesme_orani']:.4f} |",
         f"| Ortalama en yakın mesafe | {yanlis['ortalama_mesafe']:.2f} bit |",
         "",
-        "> Rapor 3.2 hedefi < %1",
+        (
+            "> Rapor 3.2 hedefi < %1 · ölçülen **"
+            f"{yanlis['olay_disi_eslesme_orani']:.4f}** "
+            f"({round(yanlis['olay_disi_eslesme_orani'] * yanlis['n'])} / {yanlis['n']} görüntü). "
+            "Örneklem küçük olduğu için çözünürlük "
+            f"{1 / max(yanlis['n'], 1):.4f}; sayı bu hassasiyetle okunmalıdır."
+        ),
         "",
         "## Eşik ödünleşimi",
         "",
         "Eşleşme eşiği bir sayı değil bir karardır ve iki yönde de maliyetlidir:",
         "gevşek eşik geometrik dönüşümlere dayanır ama alakasız görüntüleri",
         "eşleştirir. Aşağıdaki tarama, ağır (geometrik) dönüşümlerdeki Recall@1 ile",
-        "yanlış eşleşme oranını aynı eksende gösterir.",
+        "olay dışı eşleşme oranını aynı eksende gösterir.",
         "",
-        "| Hamming eşiği | Ağır dönüşüm Recall@1 | Yanlış eşleşme oranı |",
+        "| Hamming eşiği | Ağır dönüşüm Recall@1 | Olay dışı eşleşme |",
         "|---|---|---|",
     ]
     s += [
-        f"| {t_['esik']} | {t_['agir_recall1']:.4f} | {t_['yanlis_eslesme']:.4f} |" for t_ in tarama
+        f"| {t_['esik']} | {t_['agir_recall1']:.4f} | {t_['olay_disi_eslesme']:.4f} |"
+        for t_ in tarama
     ]
     s += [
         "",
@@ -343,8 +384,8 @@ def kart_yaz(sonuc: dict, yanlis: dict, indeks_boyu: int, n: int) -> Path:
                 n,
             ),
             Measurement(
-                "yanlis_eslesme_orani",
-                yanlis["yanlis_eslesme_orani"],
+                "olay_disi_eslesme_orani",
+                yanlis["olay_disi_eslesme_orani"],
                 "indeks dışı görüntüler",
                 yanlis["n"],
             ),
@@ -397,15 +438,16 @@ def main() -> int:
     # Dizindeki tüm dosyalardan farkını almak yanıltıcı olurdu: korpus toplama
     # sürerken yeni inen görüntüler de "indeks dışı" sayılır ve ölçüm kayardı.
     tutulan_dosyasi = INDEKS / "tutulan.jsonl"
-    disarida: list[Path] = []
+    disarida: list[tuple[Path, str]] = []
     if tutulan_dosyasi.exists():
         indekstekiler = set(dosyalar)
         for satir in tutulan_dosyasi.read_text(encoding="utf-8").splitlines():
             if not satir:
                 continue
-            ad = json.loads(satir)["dosya"]
+            kayit = json.loads(satir)
+            ad = kayit["dosya"]
             if ad not in indekstekiler and (KAYNAK / ad).exists():
-                disarida.append(KAYNAK / ad)
+                disarida.append((KAYNAK / ad, kayit["olay"]))
         disarida = disarida[: args.ornek]
 
     print(f"→ {len(ornekler)} görüntü × {len(DONUSUMLER)} dönüşüm\n")
@@ -415,18 +457,25 @@ def main() -> int:
     if disarida:
         yanlis = yanlis_eslesme(indeks, disarida)
         print(
-            f"  oran {yanlis['yanlis_eslesme_orani']:.4f} · "
-            f"ortalama mesafe {yanlis['ortalama_mesafe']:.2f}"
+            f"  olay dışı (zararlı) {yanlis['olay_disi_eslesme_orani']:.4f} · "
+            f"yakın kopya {yanlis['yakin_kopya_orani']:.4f} · "
+            f"ham {yanlis['ham_eslesme_orani']:.4f}"
         )
     else:
         print("  ⚠️ indeks dışı görüntü yok — ölçüm atlandı")
-        yanlis = {"yanlis_eslesme_orani": -1.0, "ortalama_mesafe": -1.0, "n": 0}
+        yanlis = {
+            "olay_disi_eslesme_orani": -1.0,
+            "yakin_kopya_orani": -1.0,
+            "ham_eslesme_orani": -1.0,
+            "ortalama_mesafe": -1.0,
+            "n": 0,
+        }
 
     print("\n→ eşik taraması")
     tarama = esik_taramasi(indeks, ornekler[:60], disarida)
-    print(f"  {'eşik':>5s} {'ağır Recall@1':>14s} {'yanlış eşleşme':>15s}")
+    print(f"  {'eşik':>5s} {'ağır Recall@1':>14s} {'olay dışı':>15s}")
     for t_ in tarama:
-        print(f"  {int(t_['esik']):5d} {t_['agir_recall1']:14.4f} {t_['yanlis_eslesme']:15.4f}")
+        print(f"  {int(t_['esik']):5d} {t_['agir_recall1']:14.4f} {t_['olay_disi_eslesme']:15.4f}")
 
     print(
         f"\n✓ {rapor_yaz(sonuc, yanlis, len(indeks), len(ornekler), tarama).relative_to(REPO_ROOT)}"

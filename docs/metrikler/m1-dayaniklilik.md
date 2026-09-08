@@ -1,11 +1,11 @@
 # M1 — Köken Motoru · Dayanıklılık Değerlendirmesi
 
-*`scripts/eval/m1_robustness.py` tarafından üretildi · 08.09.2026 16:33 UTC · commit `ab2b653`*
+*`scripts/eval/m1_robustness.py` tarafından üretildi · 08.09.2026 16:49 UTC · commit `77df8a4`*
 
 | | |
 |---|---|
-| İndeks | 456 kayıt |
-| Sorgu örneklemi | 80 görüntü |
+| İndeks | 1,758 kayıt |
+| Sorgu örneklemi | 200 görüntü |
 | Eşleşme eşiği | Hamming ≤ 10 bit (64 bitte) |
 | Karma | dHash + pHash, ikisinin iyisi |
 
@@ -16,53 +16,59 @@ Doğru kayıt ilk sırada VE eşik içinde bulunduysa başarılı sayılır.
 
 | Dönüşüm | Recall@1 | Ortalama Hamming mesafesi |
 |---|---|---|
-| temiz (kontrol) | 1.0000 | 0.00 |
-| yeniden kodlama (JPEG q30) | 1.0000 | 0.04 |
-| aşırı sıkıştırma (q10) | 1.0000 | 0.21 |
-| ölçekleme (480p) | 1.0000 | 0.00 |
-| kırpma %20 | 1.0000 | 0.14 |
-| letterbox bant | 0.6125 | 9.86 |
-| logo bindirme | 1.0000 | 1.60 |
-| sosyal medya çerçevesi | 0.5000 | 10.80 |
-| gürültü + renk kayması | 1.0000 | 0.07 |
-| parlaklık %130 | 1.0000 | 1.35 |
-| hafif bulanıklık | 1.0000 | 0.00 |
-| ayna çevirme | 0.0125 | 17.96 |
-| döndürme 5° | 0.5750 | 9.85 |
+| temiz (kontrol) | 0.9950 | 0.00 |
+| yeniden kodlama (JPEG q30) | 0.9950 | 0.06 |
+| aşırı sıkıştırma (q10) | 0.9950 | 0.35 |
+| ölçekleme (480p) | 0.9950 | 0.00 |
+| kırpma %20 | 1.0000 | 0.12 |
+| letterbox bant | 0.6150 | 9.63 |
+| logo bindirme | 0.9950 | 1.73 |
+| sosyal medya çerçevesi | 0.4750 | 10.70 |
+| gürültü + renk kayması | 1.0000 | 0.09 |
+| parlaklık %130 | 0.9900 | 1.44 |
+| hafif bulanıklık | 0.9950 | 0.00 |
+| ayna çevirme | 0.0150 | 16.28 |
+| döndürme 5° | 0.6050 | 9.82 |
 
-> Temiz kontrol: **1.0000** · rapor 3.2 hedefi ≥ 0,90
+> Temiz kontrol: **0.9950** · rapor 3.2 hedefi ≥ 0,90
 
-## Yanlış eşleşme oranı
+## Eşleşme hataları — zararına göre ayrılmış
 
-İndekste bulunmayan görüntülerle sorgulandığında sistem kaç kez
-"eşleşti" diyor? Bu sayı Recall'dan kritiktir: yanlış bir köken
-eşleşmesi kullanıcıya "bu görüntü başka bir olaya ait" demek anlamına
-gelir ve sistemin en görünür hatasıdır.
+Ham "eşleşti/eşleşmedi" sayımı bu korpusta yanıltıcıdır: Wikimedia Commons
+aynı çekimden ardışık kareler barındırır (IDF 157 ↔ IDF 158, Arslantepe
+16 ↔ 17). Böyle bir eşleşme hata DEĞİLDİR — sistem "bu görüntü 2023
+depremlerine ait, şu tarihte yayımlandı" der ve bu doğrudur.
+
+Zararlı olan, içeriğin BAŞKA BİR OLAYA bağlanmasıdır: kullanıcıya
+"görüntünüz farklı bir olaya ait" demek, yanlış olduğunda sistemin en
+görünür hatasıdır. İki oran bu yüzden ayrı raporlanır.
 
 | | |
 |---|---|
-| Sorgu | 60 indeks dışı görüntü |
-| Yanlış eşleşme oranı | **0.0167** |
-| Ortalama en yakın mesafe | 18.10 bit |
+| Sorgu | 200 indeks dışı görüntü |
+| **Olay dışı eşleşme (zararlı)** | **0.0100** |
+| Yakın kopya eşleşmesi (doğru davranış) | 0.0700 |
+| Ham eşleşme oranı | 0.0800 |
+| Ortalama en yakın mesafe | 15.49 bit |
 
-> Rapor 3.2 hedefi < %1
+> Rapor 3.2 hedefi < %1 · ölçülen **0.0100** (2 / 200 görüntü). Örneklem küçük olduğu için çözünürlük 0.0050; sayı bu hassasiyetle okunmalıdır.
 
 ## Eşik ödünleşimi
 
 Eşleşme eşiği bir sayı değil bir karardır ve iki yönde de maliyetlidir:
 gevşek eşik geometrik dönüşümlere dayanır ama alakasız görüntüleri
 eşleştirir. Aşağıdaki tarama, ağır (geometrik) dönüşümlerdeki Recall@1 ile
-yanlış eşleşme oranını aynı eksende gösterir.
+olay dışı eşleşme oranını aynı eksende gösterir.
 
-| Hamming eşiği | Ağır dönüşüm Recall@1 | Yanlış eşleşme oranı |
+| Hamming eşiği | Ağır dönüşüm Recall@1 | Olay dışı eşleşme |
 |---|---|---|
-| 4 | 0.2583 | 0.0167 |
-| 6 | 0.3167 | 0.0167 |
-| 8 | 0.5083 | 0.0167 |
-| 10 | 0.6875 | 0.0167 |
-| 12 | 0.8917 | 0.0167 |
-| 14 | 0.9708 | 0.0333 |
-| 16 | 0.9917 | 0.1833 |
+| 4 | 0.2583 | 0.0000 |
+| 6 | 0.3125 | 0.0000 |
+| 8 | 0.4167 | 0.0000 |
+| 10 | 0.6458 | 0.0100 |
+| 12 | 0.8500 | 0.0250 |
+| 14 | 0.9417 | 0.0700 |
+| 16 | 0.9708 | 0.1900 |
 
 Yürürlükteki eşik: **10 bit** (`provenance/hashing.py · MATCH_MAX_DISTANCE`).
 
