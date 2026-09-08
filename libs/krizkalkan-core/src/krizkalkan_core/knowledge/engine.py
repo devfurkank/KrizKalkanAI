@@ -12,14 +12,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from krizkalkan_core.knowledge import corpus, nli, retriever
+# nli içe aktarımı korunuyor: `_cikarim_yolu` devre dışı olsa da testler ve
+# gelecekteki yeniden değerlendirme onu bu ad üzerinden çözüyor.
+from krizkalkan_core.knowledge import corpus, nli, retriever  # noqa: F401
 from krizkalkan_core.knowledge.corpus import KnowledgeRecord
 from krizkalkan_core.schemas import Evidence, ExtractedClaim, KnowledgeMatch, Signal
 from krizkalkan_core.taxonomy import KnowledgeVerdict
 from krizkalkan_core.text.lexicon import normalize
 
-#: Bu benzerliğin altındaki eşleşmeler kayıtla ilişkilendirilmez (sözlük yolu).
+#: Sözlük tek başına çalışırken eşik. Yüksek tutulur: geri getirici yokken
+#: yanlış eşleşmeyi engelleyecek tek mekanizma budur.
 MATCH_THRESHOLD = 0.34
+
+#: Geri getirici veto olarak devredeyken kullanılabilecek DÜŞÜK eşik.
+#:
+#: Ölçüldü (docs/metrikler/m5.md): 0,34'te 3/28 doğru · 0 zararlı; 0,25'te
+#: 8/28 doğru · 1 zararlı. Tek başına 0,25'e inmek zararlı eşleşme getiriyor,
+#: ama zararlı örnek geri getiricinin ilk 20'sinde bile yok (sıra 99), doğru
+#: eşleşmelerin tamamı ilk 3'te. Veto bu yüzden düşük eşiği güvenli kılıyor.
+DOGRULANMIS_MATCH_THRESHOLD = 0.25
+
+#: Adayın geri getiricinin ilk kaçında bulunması gerekir.
+VETO_SIRA = 5
 
 #: Çıkarım katmanına kaç aday gönderilir. Geri getirme Recall@5 = 0,964
 #: ölçtüğü için beş aday pratikte doğru kaydı içeriyor; daha fazlası yalnızca
@@ -75,25 +89,69 @@ def _verdict_of(record: KnowledgeRecord) -> KnowledgeVerdict:
     return _RATING_VERDICT.get(normalize(record.rating_label), KnowledgeVerdict.ILGISIZ)
 
 
-def _sozluk_yolu(claim_text: str) -> _Eslesme:
-    """Anahtar terim örtüşmesi — modeller yokken kullanılan yol."""
+def _en_iyi_ortusme(claim_text: str) -> tuple[KnowledgeRecord | None, float]:
+    """Havuzdaki en yüksek örtüşme skorlu kayıt."""
     scored = [(record, _overlap(claim_text, record)) for record in corpus.records()]
     best, similarity = max(scored, key=lambda pair: pair[1])
+    return best, similarity
+
+
+def _sozluk_yolu(claim_text: str) -> _Eslesme:
+    """Anahtar terim örtüşmesi — geri getirici yokken kullanılan yol."""
+    best, similarity = _en_iyi_ortusme(claim_text)
     if similarity < MATCH_THRESHOLD:
         return _Eslesme(None, similarity, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "sozluk")
     return _Eslesme(best, similarity, _verdict_of(best), similarity, "sozluk")
 
 
-def _iki_asamali_yol(claim_text: str, arayici, cikarimci) -> _Eslesme:
-    """Geri getirme → çıkarım. Kararı benzerlik değil, çıkarım modeli verir.
+def _dogrulanmis_yol(claim_text: str, arayici) -> _Eslesme:
+    """Sözlük önerir, geri getirici doğrular.
 
-    Benzerliğin tek başına karar verdiremediği ölçülmüştür: konu olarak
-    havuza benzeyen resmî duyurular, tekziplerle aynı skor bandına düşüyor
-    (docs/metrikler/m5.md · ayrım analizi).
+    İki katmanın güçlü yanları farklı: sözlük skoru ayırt edici terim
+    örtüşmesini ölçer (yüksek kesinlik, düşük duyarlılık), gömme ise anlamsal
+    yakınlığı (yüksek duyarlılık, karar verdiremeyecek kadar sıkışık dağılım).
+    Biri aday üretir, diğeri vetolar.
+
+    Ölçüm (docs/metrikler/m5.md · n=28):
+
+        sözlük tek başına, eşik 0,34   3 doğru · 0 zararlı
+        sözlük tek başına, eşik 0,25   8 doğru · 1 zararlı
+        çıkarım (NLI) katmanı          1 doğru · 5 zararlı
+        sözlük 0,25 + geri getirme veto  8 doğru · 0 zararlı
+
+    Zararlı örnek geri getiricinin ilk 20'sinde bile yoktu; doğru eşleşmelerin
+    tamamı ilk 3'teydi. Ayrım keskin olduğu için veto düşük eşiği güvenli kılar.
+    """
+    aday, skor = _en_iyi_ortusme(claim_text)
+    if aday is None or skor < DOGRULANMIS_MATCH_THRESHOLD:
+        return _Eslesme(None, skor, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "dogrulanmis")
+
+    ilk_siradakiler = {a.record_id for a in arayici.ara(claim_text, k=VETO_SIRA)}
+    if aday.record_id not in ilk_siradakiler:
+        # Sözlük eşleşti ama anlamsal olarak uzak: kayıt reddedilir.
+        return _Eslesme(None, skor, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "dogrulanmis")
+
+    return _Eslesme(aday, skor, _verdict_of(aday), skor, "dogrulanmis")
+
+
+def _cikarim_yolu(claim_text: str, arayici, cikarimci) -> _Eslesme:
+    """Geri getirme → NLI çıkarımı. **Şu an devrede DEĞİL.**
+
+    Ölçüldü ve reddedildi: SNLI-TR ile eğitilen çıkarım modeli kendi kümesinde
+    0,8181 doğruluk alıyor ama kriz alanında çalışmıyor — 28 sorguda 1 doğru,
+    5 ZARARLI eşleşme üretti (sözlük yolu aynı kümede 3 doğru, 0 zararlı).
+
+    Sebep görev uyumsuzluğu: SNLI'ın "öncül varsayımı ima ediyor mu?" sorusu,
+    bizim "bu iki metin aynı iddiayı mı öne sürüyor?" sorumuz değildir. Ayrıca
+    SNLI-TR makine çevirisi kısa altyazılardan oluşur; kriz iddiaları uzun ve
+    kurumsaldır.
+
+    Fonksiyon ve testleri korunuyor: gerçek bir iddia eşleştirme kümesiyle
+    eğitilmiş model geldiğinde karar ölçümle yeniden ele alınacak.
     """
     adaylar = arayici.ara(claim_text, k=ADAY_SAYISI)
     if not adaylar:
-        return _Eslesme(None, 0.0, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "iki_asamali")
+        return _Eslesme(None, 0.0, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "cikarim")
 
     kayitlar = {k.record_id: k for k in corpus.records()}
     secilen = [(a, kayitlar[a.record_id]) for a in adaylar if a.record_id in kayitlar]
@@ -102,24 +160,26 @@ def _iki_asamali_yol(claim_text: str, arayici, cikarimci) -> _Eslesme:
     for (aday, kayit), cikarim in zip(secilen, cikarimlar, strict=True):
         if cikarim.ayni_iddia:
             # Aynı iddia: kaydın derecesi doğrudan karara dönüşür.
-            return _Eslesme(
-                kayit, aday.benzerlik, _verdict_of(kayit), cikarim.olasilik, "iki_asamali"
-            )
+            return _Eslesme(kayit, aday.benzerlik, _verdict_of(kayit), cikarim.olasilik, "cikarim")
         if cikarim.tersini_soyluyor and _verdict_of(kayit) is KnowledgeVerdict.CELISIYOR:
             # Kullanıcı yalanlanan iddianın TERSİNİ söylüyor: tekzibi paylaşıyor
             # olabilir. Bu içerik dezenformasyon değildir; kayıt onu destekler.
             return _Eslesme(
-                kayit, aday.benzerlik, KnowledgeVerdict.DESTEKLIYOR, cikarim.olasilik, "iki_asamali"
+                kayit, aday.benzerlik, KnowledgeVerdict.DESTEKLIYOR, cikarim.olasilik, "cikarim"
             )
 
-    return _Eslesme(None, adaylar[0].benzerlik, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "iki_asamali")
+    return _Eslesme(None, adaylar[0].benzerlik, KnowledgeVerdict.KAYNAK_SESSIZ, 0.0, "cikarim")
 
 
 def _eslestir(claim_text: str) -> _Eslesme:
-    """İki aşamalı yol kullanılabilirse onu, değilse sözlük yolunu seçer."""
-    arayici, cikarimci = retriever.get(), nli.get()
-    if arayici is not None and cikarimci is not None:
-        return _iki_asamali_yol(claim_text, arayici, cikarimci)
+    """Geri getirici varsa doğrulanmış yolu, yoksa sözlük yolunu seçer.
+
+    Çıkarım (NLI) yolu bilinçli olarak seçilmez; gerekçesi `_cikarim_yolu`
+    docstring'inde ölçümüyle birlikte yazılıdır.
+    """
+    arayici = retriever.get()
+    if arayici is not None:
+        return _dogrulanmis_yol(claim_text, arayici)
     return _sozluk_yolu(claim_text)
 
 
@@ -179,7 +239,7 @@ def analyse(claims: list[ExtractedClaim]) -> tuple[KnowledgeMatch | None, list[S
     # Sözlük yolunda skor sınıfa bağlı sabittir; iki aşamalı yolda çıkarım
     # modelinin güveni kullanılır — M6 kalibrasyonunun anlamlı çalışabilmesi
     # için ham skorun ayrışan bir büyüklük olması gerekir.
-    if eslesme.yol == "iki_asamali" and verdict is KnowledgeVerdict.CELISIYOR:
+    if eslesme.yol == "cikarim" and verdict is KnowledgeVerdict.CELISIYOR:
         score = eslesme.guven
     else:
         score = {

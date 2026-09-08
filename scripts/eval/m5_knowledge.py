@@ -187,7 +187,12 @@ def ayrim_analizi(gomme: Sonuc, r: Retriever, kume: dict, kayitlar) -> dict:
 
 
 def rapor_yaz(
-    gomme: Sonuc, sozluk: Sonuc, tarama: list[dict], kayit_sayisi: int, ayrim: dict
+    gomme: Sonuc,
+    sozluk: Sonuc,
+    tarama: list[dict],
+    kayit_sayisi: int,
+    ayrim: dict,
+    karar: dict[str, dict[str, int]],
 ) -> Path:
     simdi = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
     n = len(gomme.siralar)
@@ -228,6 +233,28 @@ def rapor_yaz(
         for t in tarama
     ]
     s += [
+        "",
+        "## Uçtan uca karar ölçümü",
+        "",
+        "Recall@5 geri getirmenin ne BULDUĞUNU ölçer; bu tablo sistemin ne",
+        "SÖYLEDİĞİNİ ölçer. Zararlı eşleşme, kullanıcıya yanlış bir kaydı",
+        'göstererek "resmî kaynak seni yalanlıyor" demektir.',
+        "",
+        "| Yapılandırma | Doğru | Zararlı | Sessiz |",
+        "|---|---|---|---|",
+    ]
+    s += [f"| {ad} | {d['dogru']} | {d['zararli']} | {d['sessiz']} |" for ad, d in karar.items()]
+    s += [
+        "",
+        "SNLI-TR ile eğitilen çıkarım modeli kendi kümesinde 0,8181 doğruluk alıyor",
+        "ama kriz alanında çalışmıyor. Sebep görev uyumsuzluğu: SNLI'ın \"öncül",
+        'varsayımı ima ediyor mu?" sorusu, bizim "bu iki metin aynı iddiayı mı öne',
+        'sürüyor?" sorumuz değildir. Bu nedenle çıkarım katmanı DEVREDE DEĞİLDİR.',
+        "",
+        "Yürürlükteki yapılandırmada sözlük aday üretir, geri getirme vetolar.",
+        "Zararlı tek eşleşme geri getiricinin ilk 20'sinde bile yoktu; doğru",
+        "eşleşmelerin tamamı ilk 3'teydi. Veto, sözlük eşiğini 0,34'ten 0,25'e",
+        "indirmeyi güvenli kılıyor.",
         "",
         "## Benzerlik tek başına karar verdirebilir mi?",
         "",
@@ -284,6 +311,53 @@ def rapor_yaz(
     RAPOR.parent.mkdir(parents=True, exist_ok=True)
     RAPOR.write_text("\n".join(s), encoding="utf-8")
     return RAPOR
+
+
+def karar_olcumu(kume: dict, kayitlar) -> dict[str, dict[str, int]]:
+    """Uçtan uca KARAR ölçümü — geri getirme değil, verilen hüküm.
+
+    Recall@5 geri getirmenin ne bulduğunu ölçer; bu fonksiyon sistemin ne
+    SÖYLEDİĞİNİ ölçer. Aradaki fark kritiktir: doğru kaydı ilk beşe getirmek,
+    doğru kararı vermek demek değildir.
+
+    Üç yapılandırma karşılaştırılır. Zararlı eşleşme, kullanıcıya YANLIŞ bir
+    kaydı göstererek "resmî kaynak seni yalanlıyor" demektir.
+    """
+    from krizkalkan_core.knowledge import nli, retriever
+
+    def hedefleri(desen: str) -> set[str]:
+        return hedefleri_coz(desen, kayitlar)
+
+    arayici, cikarimci = retriever.get(), nli.get()
+    yapilandirmalar: dict[str, object] = {
+        "sözlük (eşik 0,34)": lambda s: engine._sozluk_yolu(s),
+    }
+    if arayici is not None:
+        yapilandirmalar["sözlük 0,25 + geri getirme vetosu"] = lambda s: engine._dogrulanmis_yol(
+            s, arayici
+        )
+        if cikarimci is not None:
+            yapilandirmalar["geri getirme + NLI çıkarımı"] = lambda s: engine._cikarim_yolu(
+                s, arayici, cikarimci
+            )
+
+    sonuc: dict[str, dict[str, int]] = {}
+    for ad, yol in yapilandirmalar.items():
+        dogru = zararli = sessiz = 0
+        for madde in kume["sorgular"]:
+            hedefler = hedefleri(madde["hedef_desen"])
+            if not hedefler:
+                continue
+            eslesme = yol(madde["sorgu"])
+            if eslesme.record is None:
+                sessiz += 1
+            elif eslesme.record.record_id in hedefler:
+                dogru += 1
+            else:
+                zararli += 1
+        sonuc[ad] = {"dogru": dogru, "zararli": zararli, "sessiz": sessiz}
+        print(f"  {ad:34s} doğru {dogru:2d} · zararlı {zararli:2d} · sessiz {sessiz:2d}")
+    return sonuc
 
 
 def kart_yaz(gomme: Sonuc, dizin: Path, kayit_sayisi: int) -> Path:
@@ -380,6 +454,9 @@ def main() -> int:
             f"yanlış {t['yanlis_sizan']}/{t['yanlis_toplam']}"
         )
 
+    print("\n→ uçtan uca karar ölçümü…")
+    karar = karar_olcumu(kume, kayitlar)
+
     print("\n→ ayrım analizi…")
     ayrim = ayrim_analizi(gomme, r, kume, kayitlar)
     for ad, d in ayrim.items():
@@ -388,7 +465,7 @@ def main() -> int:
             f"  {ad:18s} poz min={d['pozitif_min']:.3f} neg maks={d['negatif_maks']:.3f}  {durum}"
         )
 
-    yol = rapor_yaz(gomme, sozluk, tarama, len(kayitlar), ayrim)
+    yol = rapor_yaz(gomme, sozluk, tarama, len(kayitlar), ayrim, karar)
     kart_yolu = kart_yaz(gomme, dizin, len(kayitlar))
     print(f"\n✓ {yol.relative_to(REPO_ROOT)}")
     print(f"✓ {kart_yolu.relative_to(REPO_ROOT)}  (kabul kapısı bu kartı okur)")

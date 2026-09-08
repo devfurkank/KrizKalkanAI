@@ -52,14 +52,14 @@ def yanlis_kayit_kimligi() -> str:
 
 def test_ayni_iddia_celisiyor_verir(yanlis_kayit_kimligi: str) -> None:
     """Çıkarım 'aynı iddia' derse kaydın derecesi karara dönüşür."""
-    eslesme = engine._iki_asamali_yol(
+    eslesme = engine._cikarim_yolu(
         "baraj yıkıldı şehri terk edin",
         SahteArayici([yanlis_kayit_kimligi]),
         SahteCikarimci([Cikarim(etiket="entailment", olasilik=0.93)]),
     )
     assert eslesme.record is not None
     assert eslesme.verdict is KnowledgeVerdict.CELISIYOR
-    assert eslesme.yol == "iki_asamali"
+    assert eslesme.yol == "cikarim"
     assert eslesme.guven == 0.93
 
 
@@ -69,7 +69,7 @@ def test_dusuk_guvenli_entailment_karar_vermez(yanlis_kayit_kimligi: str) -> Non
     Yanlış eşleşme, kullanıcıya "resmî kaynak seni yalanlıyor" demek anlamına
     gelir; eşik bu yüzden kasten yüksektir.
     """
-    eslesme = engine._iki_asamali_yol(
+    eslesme = engine._cikarim_yolu(
         "baraj yıkıldı",
         SahteArayici([yanlis_kayit_kimligi]),
         SahteCikarimci([Cikarim(etiket="entailment", olasilik=0.55)]),
@@ -84,7 +84,7 @@ def test_benzer_konu_ayni_iddia_degildir(yanlis_kayit_kimligi: str) -> None:
     Ölçümün gösterdiği asıl hata modu budur: resmî duyurular havuza konu
     olarak çok benzer skor alıyor ama aynı iddiayı öne sürmüyor.
     """
-    eslesme = engine._iki_asamali_yol(
+    eslesme = engine._cikarim_yolu(
         "afad koordinasyonunda ekipler sahada çalışmaya devam ediyor",
         SahteArayici([yanlis_kayit_kimligi], benzerlik=0.89),
         SahteCikarimci([Cikarim(etiket="neutral", olasilik=0.97)]),
@@ -95,7 +95,7 @@ def test_benzer_konu_ayni_iddia_degildir(yanlis_kayit_kimligi: str) -> None:
 
 def test_tekzip_paylasan_kullanici_desteklenir(yanlis_kayit_kimligi: str) -> None:
     """Yalanlanan iddianın TERSİNİ söyleyen metin dezenformasyon değildir."""
-    eslesme = engine._iki_asamali_yol(
+    eslesme = engine._cikarim_yolu(
         "baraj yıkılmadı, DSİ yapısal hasar olmadığını açıkladı",
         SahteArayici([yanlis_kayit_kimligi]),
         SahteCikarimci([Cikarim(etiket="contradiction", olasilik=0.91)]),
@@ -107,7 +107,7 @@ def test_ilk_uygun_aday_secilir(yanlis_kayit_kimligi: str) -> None:
     """İlk aday uymazsa sonraki adaylara bakılır (Recall@5'in anlamı budur)."""
     kimlikler = [k.record_id for k in corpus.records()][:3]
     kimlikler[2] = yanlis_kayit_kimligi
-    eslesme = engine._iki_asamali_yol(
+    eslesme = engine._cikarim_yolu(
         "test",
         SahteArayici(kimlikler),
         SahteCikarimci(
@@ -123,7 +123,7 @@ def test_ilk_uygun_aday_secilir(yanlis_kayit_kimligi: str) -> None:
 
 
 def test_aday_yoksa_kaynak_sessiz() -> None:
-    eslesme = engine._iki_asamali_yol("test", SahteArayici([]), SahteCikarimci([]))
+    eslesme = engine._cikarim_yolu("test", SahteArayici([]), SahteCikarimci([]))
     assert eslesme.record is None
     assert eslesme.verdict is KnowledgeVerdict.KAYNAK_SESSIZ
 
@@ -143,12 +143,43 @@ def test_modeller_yoksa_sozluk_yoluna_dusulur(monkeypatch) -> None:
     assert eslesme.verdict is KnowledgeVerdict.CELISIYOR, "demo senaryosu korunmalı"
 
 
-def test_tek_model_yeterli_degil(monkeypatch, yanlis_kayit_kimligi: str) -> None:
-    """İki aşamalı yol her iki model de yüklüyken devreye girer.
+def test_geri_getirici_varsa_dogrulanmis_yol_secilir(
+    monkeypatch, yanlis_kayit_kimligi: str
+) -> None:
+    """Karar yolu geri getiricinin varlığına bağlıdır, NLI'ya değil.
 
-    Yalnızca geri getirici varken karar benzerliğe kalırdı; ölçüm bunun
-    güvenli olmadığını gösterdi (docs/metrikler/m5.md).
+    Çıkarım yolu ölçülüp reddedildi (bkz. engine._cikarim_yolu): kriz alanında
+    28 sorguda 1 doğru, 5 zararlı eşleşme üretiyordu.
     """
     monkeypatch.setattr(engine.retriever, "get", lambda: SahteArayici([yanlis_kayit_kimligi]))
-    monkeypatch.setattr(engine.nli, "get", lambda: None)
-    assert engine._eslestir("baraj yıkıldı").yol == "sozluk"
+    assert engine._eslestir("baraj yıkıldı").yol == "dogrulanmis"
+
+
+def test_geri_getirici_vetosu_uzak_kaydi_reddeder(monkeypatch) -> None:
+    """Sözlük eşleşse bile geri getirici onaylamıyorsa kayıt kurulmaz.
+
+    Ölçümde zararlı tek eşleşme, geri getiricinin ilk 20'sinde bile yoktu;
+    doğru eşleşmelerin tamamı ilk 3'teydi. Veto düşük sözlük eşiğini bu yüzden
+    güvenli kılıyor.
+    """
+    # Geri getirici alakasız bir kayıt döndürüyor → aday vetolanmalı.
+    monkeypatch.setattr(engine.retriever, "get", lambda: SahteArayici(["OLMAYAN-KAYIT"]))
+    eslesme = engine._eslestir("AFAD ikinci büyük deprem uyarısı yaptı")
+    assert eslesme.record is None
+    assert eslesme.verdict is KnowledgeVerdict.KAYNAK_SESSIZ
+
+
+def test_geri_getirici_onaylarsa_eslesme_kurulur(monkeypatch) -> None:
+    """Sözlük ve geri getirici aynı kaydı gösteriyorsa eşleşme kurulur."""
+    sorgu = "AFAD ikinci büyük deprem uyarısı yaptı"
+    # Sözlüğün seçtiği kaydı geri getirici de onaylıyor olmalı; hangisini
+    # seçtiğini sabit yazmak yerine ölçüp kullanmak testi kırılgan olmaktan çıkarır.
+    aday, _ = engine._en_iyi_ortusme(sorgu)
+    assert aday is not None
+
+    monkeypatch.setattr(engine.retriever, "get", lambda: SahteArayici([aday.record_id]))
+    eslesme = engine._eslestir(sorgu)
+
+    assert eslesme.record is not None
+    assert eslesme.record.record_id == aday.record_id
+    assert eslesme.verdict is KnowledgeVerdict.CELISIYOR
