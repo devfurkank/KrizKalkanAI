@@ -55,6 +55,27 @@ SINYAL_HEDEFI: dict[str, Verdict] = {
     "knowledge.verdict": Verdict.DOGRULANMAMIS_IDDIA,
 }
 
+#: Sınıf etiketiyle değil, vakanın META VERİSİYLE tanımlanan hedefler.
+#:
+#: `multimodal.scene_claim` "sahne iddiayla çelişiyor" der. Bunu YANLIŞ_BAĞLAM
+#: sınıfına göre kalibre etmek yanlış olurdu: o sınıf konum çelişkisi vakalarını
+#: da içerir ve orada sahne İDDİAYLA UYUMLUDUR. Hedef, vakanın kendi
+#: alanlarından okunur.
+META_HEDEFI: dict[str, str] = {
+    "multimodal.scene_claim": "sahne_uyusmazligi",
+}
+
+
+def _sahne_uyusmazligi(vaka: dict) -> int | None:
+    """Vaka bir sahne uyuşmazlığı mı? İlgisizse None."""
+    gercek, iddia = vaka.get("gercek_tur"), vaka.get("iddia_edilen_tur")
+    if gercek is None or iddia is None:
+        return None
+    return int(gercek != iddia)
+
+
+META_COZUCU = {"sahne_uyusmazligi": _sahne_uyusmazligi}
+
 #: Kalibrasyon eğrisinde tutulacak azami kırılım noktası sayısı.
 AZAMI_NOKTA = 12
 
@@ -89,6 +110,7 @@ def vakalari_calistir(vakalar: list[dict]) -> list[dict]:
                 "gercek": vaka["sinif"],
                 "tahmin": analiz.verdict.value,
                 "sinyaller": {s.key: s.raw_score for s in analiz.signals if not s.abstained},
+                "meta": {ad: cozucu(vaka) for ad, cozucu in META_COZUCU.items()},
             }
         )
         if sira % 50 == 0:
@@ -138,12 +160,23 @@ def kalibre_et(sonuclar: list[dict], tohum: int) -> dict[str, dict]:
     rastgele = np.random.default_rng(tohum)
     cikti: dict[str, dict] = {}
 
-    for anahtar, hedef_sinif in SINYAL_HEDEFI.items():
-        ciftler = [
-            (s["sinyaller"][anahtar], int(s["gercek"] == hedef_sinif.value))
-            for s in sonuclar
-            if anahtar in s["sinyaller"]
-        ]
+    hedefler: list[tuple[str, object]] = [(a, ("sinif", h)) for a, h in SINYAL_HEDEFI.items()] + [
+        (a, ("meta", m)) for a, m in META_HEDEFI.items()
+    ]
+
+    for anahtar, (tur, hedef) in hedefler:
+        if tur == "sinif":
+            ciftler = [
+                (s["sinyaller"][anahtar], int(s["gercek"] == hedef.value))
+                for s in sonuclar
+                if anahtar in s["sinyaller"]
+            ]
+        else:
+            ciftler = [
+                (s["sinyaller"][anahtar], s["meta"][hedef])
+                for s in sonuclar
+                if anahtar in s["sinyaller"] and s["meta"].get(hedef) is not None
+            ]
         if len(ciftler) < 30 or len({e for _, e in ciftler}) < 2:
             print(f"  {anahtar:22s} atlandı (n={len(ciftler)}, tek sınıf olabilir)")
             continue

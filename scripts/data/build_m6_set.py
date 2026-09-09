@@ -34,6 +34,7 @@ from krizkalkan_core.knowledge import corpus as bilgi  # noqa: E402
 from krizkalkan_core.taxonomy import Verdict  # noqa: E402
 
 GORUNTU_DIZINI = REPO_ROOT / "data" / "external" / "provenance" / "goruntuler"
+TUTULAN = REPO_ROOT / "models" / "m1_provenance" / "tutulan.jsonl"
 PROVENANCE_KAYIT = REPO_ROOT / "data" / "external" / "provenance" / "kayitlar.jsonl"
 METINLER = REPO_ROOT / "scripts" / "eval" / "kumeler" / "m6_metinler.json"
 CIKTI = REPO_ROOT / "data" / "processed" / "m6_uctan_uca.jsonl"
@@ -50,6 +51,39 @@ SABLONLAR = (
 
 #: Çelişki üretmek için kullanılan, korpusta BULUNMAYAN şehirler.
 UZAK_SEHIRLER = ("İzmir", "Trabzon", "Edirne", "Rize", "Aydın", "Samsun", "Bursa")
+
+#: Afet türüne göre iddia şablonları — sahne uyuşmazlığı vakaları için.
+#: Konum bilinçli olarak KULLANILMAZ: bu vakalarda ölçülen sahne çelişkisidir,
+#: konum çelişkisi değil. İkisi karışırsa hangi sinyalin çalıştığı belirsizleşir.
+TUR_SABLONLARI: dict[str, str] = {
+    "deprem": "Deprem sonrası binalar yıkıldı, enkaz altında insanlar var.",
+    "yangın": "Orman yangını çıktı, alevler hızla yayılıyor.",
+    "sel": "Sel suları bastı, her yer sular altında kaldı.",
+}
+
+
+def _afet_turu(olay: str) -> str | None:
+    alt = olay.lower()
+    for anahtar in TUR_SABLONLARI:
+        if anahtar in alt:
+            return anahtar
+    return None
+
+
+def _tutulan_kayitlar() -> list[dict]:
+    """Köken indeksine GİRMEMİŞ görüntüler.
+
+    Sahne uyuşmazlığı vakalarında indeks içi görüntü kullanılamaz: köken
+    eşleşmesi kesin sonuç ürettiğinde boru hattı kademeli işlem gereği M2'yi
+    hiç çalıştırmaz ve ölçülmek istenen sinyal üretilmez.
+    """
+    if not TUTULAN.exists():
+        return []
+    return [
+        k
+        for s in TUTULAN.read_text(encoding="utf-8").splitlines()
+        if s and (k := json.loads(s)) and (GORUNTU_DIZINI / k["dosya"]).exists()
+    ]
 
 
 def _sehir(konum: str) -> str:
@@ -112,6 +146,41 @@ def main() -> int:
             )
     else:
         print("⚠️ M1 korpusu yok; görüntü tabanlı sınıflar atlandı")
+
+    # ── Sahne uyuşmazlığı (indeks dışı görüntüler) ──
+    tutulan = _tutulan_kayitlar()
+    turlu = [(k, t) for k in tutulan if (t := _afet_turu(k["olay"]))]
+    rastgele.shuffle(turlu)
+    yari = min(args.medya_basina, len(turlu) // 2)
+
+    for kayit, tur in turlu[:yari]:
+        farkli = rastgele.choice([t for t in TUR_SABLONLARI if t != tur])
+        vakalar.append(
+            {
+                "id": f"m6-su-{len(vakalar):04d}",
+                "sinif": Verdict.YANLIS_BAGLAM.value,
+                "metin": TUR_SABLONLARI[farkli],
+                "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                "medya_turu": "image",
+                "kaynak": "indeks dışı görüntü · sahne uyuşmazlığı",
+                "gercek_tur": tur,
+                "iddia_edilen_tur": farkli,
+            }
+        )
+
+    for kayit, tur in turlu[yari : 2 * yari]:
+        vakalar.append(
+            {
+                "id": f"m6-su-tm-{len(vakalar):04d}",
+                "sinif": Verdict.TEMIZ.value,
+                "metin": TUR_SABLONLARI[tur],
+                "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                "medya_turu": "image",
+                "kaynak": "indeks dışı görüntü · sahne uyumlu",
+                "gercek_tur": tur,
+                "iddia_edilen_tur": tur,
+            }
+        )
 
     # ── Metin tabanlı sınıflar ──
     dmm = [k for k in bilgi.records() if k.record_id.startswith("DMM-B")]

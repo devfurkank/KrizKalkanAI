@@ -144,7 +144,9 @@ class AnalysisPipeline:
             modules_skipped.extend(["M2", "M4"])
             skip_reason = "İçerikte medya bulunmadığı için medya modülleri atlandı."
         else:
-            signals.extend(multimodal.analyse(media_fingerprint, media_kind, has_audio, claims))
+            signals.extend(
+                multimodal.analyse(media_fingerprint, media_kind, has_audio, claims, body)
+            )
             modules_run.append("M2")
             signals.extend(synthetic.analyse(media_fingerprint, media_kind, has_audio))
             modules_run.append("M4")

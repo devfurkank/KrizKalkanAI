@@ -43,22 +43,27 @@ AFET_TERIMLERI: dict[str, tuple[str, ...]] = {
 }
 
 
-def _afet_turu(claims: list[ExtractedClaim]) -> str | None:
-    """İddia metinlerinden afet türünü çıkarır; belirsizse None."""
-    metin = normalize(" ".join(c.text for c in claims))
+def _afet_turu(claims: list[ExtractedClaim], body: str = "") -> str | None:
+    """Metinden afet türünü çıkarır; belirsizse None.
+
+    Ham metin de kullanılır: sahne karşılaştırması yapılandırılmış iddiaya
+    değil, metnin ne iddia ettiğine bakar. Konum içermeyen bir cümleden sözlük
+    iddia çıkarmıyor ve sinyal hiç üretilmiyordu.
+    """
+    metin = normalize(" ".join([*(c.text for c in claims), body]))
     for tur, terimler in AFET_TERIMLERI.items():
         if any(terim in metin for terim in terimler):
             return tur
     return None
 
 
-def _sahne_sinyali(yol: Path, claims: list[ExtractedClaim]) -> Signal | None:
+def _sahne_sinyali(yol: Path, claims: list[ExtractedClaim], body: str) -> Signal | None:
     """Gerçek görüntüyle sahne–iddia uyumunu ölçer; model yoksa None."""
     model = scene.get()
     if model is None:
         return None
 
-    tur = _afet_turu(claims)
+    tur = _afet_turu(claims, body)
     try:
         sonuc = model.karsilastir(yol, tur)
     except Exception:  # okunamayan görüntü analizi durdurmamalı
@@ -119,6 +124,7 @@ def analyse(
     media_kind: str,
     has_audio: bool,
     claims: list[ExtractedClaim],
+    body: str = "",
 ) -> list[Signal]:
     """Modaliteler arası çelişkileri ölçer."""
     # Görsel içerik ELENMEZ: dudak–ses hizalaması ve konuşmacı–yüz uyumu video
@@ -205,11 +211,14 @@ def analyse(
     # Parmak izi gerçek bir dosyayı işaret ediyorsa görsel-dil modeli çalışır;
     # demo parmak izleri sözlük yoluyla devam eder.
     yol = Path(fingerprint)
+    # Yapılandırılmış iddia ŞART DEĞİL: sahne karşılaştırması metnin ne iddia
+    # ettiğine bakar. Konumsuz cümlelerden sözlük iddia çıkarmadığı için bu
+    # koşul sinyali tümüyle susturuyordu.
     if (
-        claims
+        (claims or body)
         and len(fingerprint) < 400
         and yol.is_file()
-        and (sahne := _sahne_sinyali(yol, claims)) is not None
+        and (sahne := _sahne_sinyali(yol, claims, body)) is not None
     ):
         signals.append(sahne)
         return signals

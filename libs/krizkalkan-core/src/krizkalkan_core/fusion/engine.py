@@ -23,6 +23,13 @@ from krizkalkan_core.taxonomy import (
     Verdict,
 )
 
+#: Sahne çelişkisinin yanlış bağlam kurması için gereken kalibre skor.
+#:
+#: Ölçümden seçildi (docs/metrikler/m6.md): 0,60'ta duyarlılık 0,77 ·
+#: kesinlik 0,94 · yanlış pozitif 0,05. Daha yüksek eşik kesinliği bir puan
+#: artırırken duyarlılıktan beş puan götürüyor.
+SAHNE_CELISKI_ESIGI = 0.60
+
 
 def apply_calibration(signals: list[Signal]) -> list[Signal]:
     """Her sinyalin skorunu kalibre eder; ham skoru saklar."""
@@ -112,6 +119,24 @@ def fuse(
             Verdict.MANIPULE_MEDYA,
             min(0.95, manipulation_evidence + agreement),
             contributors("multimodal.av_sync", "multimodal.speaker_face", "synthetic.audio"),
+        )
+
+    # ── 3b. Sahne çelişkisi: medya gerçek, gösterdiği olay iddiadan başka ──
+    #
+    # Ölçüldü (docs/metrikler/m6.md, n=115): kalibre sahne sinyali uyumlu
+    # vakalarda medyan 0,12, uyuşmaz vakalarda 0,88 veriyor. Eşik 0,60'ta
+    # duyarlılık 0,77 · kesinlik 0,94 · yanlış pozitif 0,05.
+    #
+    # Köken kaydı bağlamı DOĞRULADIYSA bu dal çalışmaz: eşleşen kayıt görüntünün
+    # gerçekten o olaya ait olduğunu söylüyorsa, görsel-dil modelinin ikinci
+    # tahmini bunu geçersiz kılamaz. Kesin kanıt olasılıksal sinyalden önce gelir
+    # (rapor 1.2 · köken önceliği).
+    koken_dogruladi = bool(provenance and provenance.matched and not provenance.context_conflict)
+    if scene_claim >= SAHNE_CELISKI_ESIGI and not koken_dogruladi:
+        return (
+            Verdict.YANLIS_BAGLAM,
+            min(0.90, scene_claim),
+            contributors("multimodal.scene_claim", "text.manipulative", "knowledge.verdict"),
         )
 
     # ── 4. Doğrulanmamış iddia ──
