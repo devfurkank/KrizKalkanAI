@@ -5,8 +5,8 @@
 | Model adı | `m5_retriever` |
 | Temel model | intfloat/multilingual-e5-base (int8 ONNX) |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-08T18:52:46+00:00 |
-| Git commit | `01361d3` |
+| Oluşturulma | 2026-09-09T09:34:54+00:00 |
+| Git commit | `4d21d8a` |
 | Lisans | Model: MIT (e5) · Veri: CC BY 4.0 (DMM) |
 
 ## Amaç ve kapsam

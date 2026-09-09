@@ -417,6 +417,57 @@ def kart_yaz(gomme: Sonuc, dizin: Path, kayit_sayisi: int) -> Path:
     return kart.write_markdown(REPO_ROOT / "docs" / "model-kartlari")
 
 
+def nli_karti_guncelle(karar: dict[str, dict[str, int]]) -> Path | None:
+    """NLI kartına ALAN İÇİ ölçümü ekler.
+
+    Kaggle'da yazılan kart yalnızca SNLI-TR doğruluğunu taşıyor ve o sayı alan
+    içi başarımı temsil etmiyor. Kart, modelin kriz alanında ne yaptığını da
+    söylemeli — özellikle devreye alınmama gerekçesini.
+    """
+    dizin = model_root() / "m5_nli"
+    kart = ModelCard.load(dizin)
+    if kart is None:
+        return None
+
+    cikarim = karar.get("geri getirme + NLI çıkarımı")
+    if cikarim is None:
+        return None
+    toplam = sum(cikarim.values())
+
+    kart.measurements = [m for m in kart.measurements if not m.metric.startswith("alan_ici")] + [
+        Measurement(
+            "alan_ici_dogru_eslesme",
+            round(cikarim["dogru"] / max(toplam, 1), 4),
+            "kriz iddiası → DMM kaydı",
+            toplam,
+            "SNLI doğruluğu bu sayıyı TEMSİL ETMEZ",
+        ),
+        Measurement(
+            "alan_ici_zararli_eslesme",
+            round(cikarim["zararli"] / max(toplam, 1), 4),
+            "kriz iddiası → DMM kaydı",
+            toplam,
+            "yanlış kayıt gösterilerek 'resmî kaynak seni yalanlıyor' denmesi",
+        ),
+    ]
+    kart.known_limits = [
+        "🔴 MODEL DEVREDE DEĞİLDİR. Kriz alanında ölçüldü ve reddedildi: "
+        f"{toplam} sorguda {cikarim['dogru']} doğru, {cikarim['zararli']} ZARARLI "
+        "eşleşme üretti. Aynı kümede sözlük yolu daha iyi sonuç veriyor.",
+        "Sebep görev uyumsuzluğu, eğitim başarısızlığı değil: SNLI'ın \"öncül "
+        'varsayımı ima ediyor mu?" sorusu, "bu iki metin aynı iddiayı mı öne '
+        'sürüyor?" sorusu değildir. Öncül/varsayım yönü ters çevrilerek de '
+        "denendi; iki yönde de başarısız.",
+        "SNLI-TR makine çevirisiyle üretilmiştir; kısa, genel cümlelerden oluşur. "
+        "Kriz iddiaları ve DMM kayıtları uzun ve kurumsal dildedir.",
+        "Gerçek bir iddia eşleştirme kümesiyle eğitilmiş model geldiğinde karar "
+        "ölçümle yeniden ele alınmalıdır; kod yolu (`engine._cikarim_yolu`) ve "
+        "testleri korunmaktadır.",
+    ]
+    kart.save(dizin)
+    return kart.write_markdown(REPO_ROOT / "docs" / "model-kartlari")
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--sadece-sozluk", action="store_true", help="gömme modeli olmadan çalıştır")
@@ -467,6 +518,8 @@ def main() -> int:
 
     yol = rapor_yaz(gomme, sozluk, tarama, len(kayitlar), ayrim, karar)
     kart_yolu = kart_yaz(gomme, dizin, len(kayitlar))
+    if (nli_yolu := nli_karti_guncelle(karar)) is not None:
+        print(f"✓ {nli_yolu.relative_to(REPO_ROOT)}  (alan içi ölçüm eklendi)")
     print(f"\n✓ {yol.relative_to(REPO_ROOT)}")
     print(f"✓ {kart_yolu.relative_to(REPO_ROOT)}  (kabul kapısı bu kartı okur)")
     return 0

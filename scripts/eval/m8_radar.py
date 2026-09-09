@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "libs" / "krizkalkan-core" / "src"))
 
 from krizkalkan_core.knowledge import corpus  # noqa: E402
+from krizkalkan_core.models.cards import Measurement, ModelCard  # noqa: E402
 from krizkalkan_core.radar.engine import _token_kumeleri, kumele  # noqa: E402
 from krizkalkan_core.text.lexicon import normalize  # noqa: E402
 
@@ -206,6 +207,63 @@ def rapor_yaz(sonuclar: list[dict]) -> Path:
     return RAPOR
 
 
+def kart_yaz(sonuclar: list[dict]) -> Path:
+    """Model kartı — M8'in kendi ağırlığı yoktur, M5'in kodlayıcısını kullanır."""
+    zor = next(s for s in sonuclar if "zor" in s["ad"])
+    kolay = next(s for s in sonuclar if "kolay" in s["ad"])
+
+    kart = ModelCard(
+        name="m8_radar",
+        module="M8",
+        title="Kriz Radar İddia Kümeleme",
+        version="0.1.0",
+        base_model="intfloat/multilingual-e5-base (M5 kodlayıcısı) + HDBSCAN",
+        purpose=(
+            "Aynı iddianın farklı ifadelerini tek kümede toplar; panel yayılım "
+            "hızını ve ivmesini bu kümeler üzerinden hesaplar."
+        ),
+        training_data=["Eğitim verisi yok; kümeleme denetimsizdir"],
+        training_procedure=(
+            "Eğitim yok. Cümle gömmesi M5'in kodlayıcısıyla üretilir (ek ağırlık "
+            "indirilmez), HDBSCAN ile kümelenir. Gürültü olarak işaretlenen "
+            "iddialar tek üyeli kümelere dönüştürülür: bir kez görülmüş iddia da "
+            "bir iddiadır, panelden düşürülmez."
+        ),
+        hyperparameters={"min_cluster_size": 2, "metric": "euclidean"},
+        split_strategy="Değerlendirme, gerçek DMM iddiaları ve elle yazılmış "
+        "yeniden ifadeleri üzerinde yapılır",
+        measurements=[
+            Measurement("ari_zor", zor["gomme"]["ari"], "elle yazılmış yeniden ifadeler", zor["n"]),
+            Measurement(
+                "birlikte_zor", zor["gomme"]["birlikte"], "elle yazılmış yeniden ifadeler", zor["n"]
+            ),
+            Measurement("ari_kolay", kolay["gomme"]["ari"], "gürültü varyantları", kolay["n"]),
+        ],
+        known_limits=[
+            f"Zor kümede ARI {zor['gomme']['ari']:.4f}: aynı iddianın elle yeniden "
+            "yazılmış hâllerinin yaklaşık yarısı ayrı kümelerde kalıyor. Panel bu "
+            "durumda tek bir yalanı iki satır olarak gösterir — birleştirmeyi "
+            "kaçırmak, yanlış birleştirmekten daha az zararlıdır ve eşik bu yönde "
+            "seçilmiştir.",
+            "Kümeleme denetimsizdir ve kriz alanına uyarlanmamıştır; gömme modeli genel amaçlıdır.",
+            "Değerlendirme kümesi küçüktür (n=" + str(zor["n"]) + " ve " + str(kolay["n"]) + ").",
+        ],
+        ethical_notes=[
+            "Panelin iki sayacı her koşulda görünür kalır: Kural 0 ile korunan "
+            "yardım çağrısı sayısı ve kaldırılan içerik sayısı (her zaman sıfır).",
+            "Kümeleme bir sıralama aracıdır, hüküm değil: küme büyüklüğü içeriğin "
+            "yanlış olduğunu göstermez, yalnızca yayılımını gösterir.",
+        ],
+        out_of_scope=[
+            "Küme büyüklüğünden doğruluk hükmü çıkarmak",
+            "Kural 0 ile korunmuş içerikleri kümelemek — panel onları hiç almaz",
+        ],
+        license="Model: MIT (e5) · BSD-3 (scikit-learn)",
+        git_commit=_git_commit(),
+    )
+    return kart.write_markdown(REPO_ROOT / "docs" / "model-kartlari")
+
+
 def main() -> int:
     argparse.ArgumentParser(description=__doc__).parse_args()
 
@@ -214,6 +272,7 @@ def main() -> int:
         olc("Gürültü dayanıklılığı (kolay)", *gurultu_kumesi()),
     ]
     print(f"\n✓ {rapor_yaz(sonuclar).relative_to(REPO_ROOT)}")
+    print(f"✓ {kart_yaz(sonuclar).relative_to(REPO_ROOT)}")
     return 0
 
 
