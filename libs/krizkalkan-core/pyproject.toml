@@ -28,6 +28,8 @@ models = [
     "scikit-learn>=1.6.0",
     "lightgbm>=4.5.0",
     "tokenizers>=0.21.0",
+    # C2PA / Content Credentials doğrulaması — M4'ün tek kriptografik sinyali.
+    "c2pa-python>=0.37.0",
 ]
 
 # Yalnızca Kaggle/eğitim ortamında kurulur; yerel demoya girmez.

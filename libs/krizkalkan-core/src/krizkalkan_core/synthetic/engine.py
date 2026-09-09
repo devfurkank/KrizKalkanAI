@@ -9,8 +9,11 @@ Kritik davranış: dağılım dışı (OOD) tespiti eşiği aşıldığında mod
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, Signal
+from krizkalkan_core.synthetic.c2pa import dogrula as c2pa_dogrula
 
 #: Bu işaretleri taşıyan medya sentetik/manipüle üretim olarak modellenir.
 _SYNTHETIC_MARKERS = ("ai-", "sentetik", "uretilmis", "deepfake", "klon")
@@ -26,12 +29,59 @@ def _deterministic_score(fingerprint: str, salt: str, low: float, high: float) -
 
 
 def _c2pa_status(fingerprint: str) -> tuple[str, float]:
-    """C2PA / Content Credentials üstverisini doğrular."""
+    """C2PA üstverisi — demo parmak izleri için sözlük yolu.
+
+    Gerçek dosya geldiğinde `_c2pa_gercek` kullanılır; bu yol yalnızca dize
+    parmak iziyle temsil edilen demo senaryolarını çalıştırır.
+    """
     if "c2pa-ai" in fingerprint:
         return "C2PA: içerik yapay zekâ üretimi olarak imzalanmış", 0.95
     if "c2pa-kamera" in fingerprint:
         return "C2PA: cihaz imzası doğrulandı, üretim zinciri bozulmamış", 0.02
     return "C2PA üstverisi bulunamadı", 0.0
+
+
+def _c2pa_gercek(yol: Path) -> Signal:
+    """Dosyanın C2PA imzasını gerçekten doğrular.
+
+    Diğer M4 sinyalleri olasılıksaldır; bu değildir. İmza kriptografik bir
+    kayıttır: içerik AI üretimi olarak imzalanmışsa sistem tahmin etmez,
+    doğrular (rapor 3.1 · M4).
+    """
+    sonuc = c2pa_dogrula(yol)
+    ayrintilar = [
+        p
+        for p in (
+            f"üretici: {sonuc.uretici}" if sonuc.uretici else None,
+            f"kaynak türü: {sonuc.dijital_kaynak.rsplit('/', 1)[-1]}"
+            if sonuc.dijital_kaynak
+            else None,
+            sonuc.ayrinti,
+        )
+        if p
+    ]
+    return Signal(
+        module="M4",
+        key="synthetic.c2pa",
+        label="Köken üstverisi (C2PA)",
+        score=sonuc.skor,
+        raw_score=sonuc.skor,
+        abstained=sonuc.cekinmeli,
+        abstain_reason=(
+            # İmza yokluğu içerik hakkında hiçbir şey söylemez: C2PA yaygın
+            # değildir ve imzasız içerik kuraldır, istisna değil.
+            "İçerikte C2PA imzası yok — bu, içeriğin sahte olduğu anlamına gelmez"
+            if sonuc.cekinmeli
+            else None
+        ),
+        evidence=[
+            Evidence(
+                kind="ustveri",
+                label=sonuc.aciklama,
+                detail=" · ".join(ayrintilar) or None,
+            )
+        ],
+    )
 
 
 def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[Signal]:
@@ -128,6 +178,13 @@ def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[S
         )
 
     # ── C2PA ──
+    # Parmak izi gerçek bir dosyayı işaret ediyorsa imza kriptografik olarak
+    # doğrulanır; demo parmak izleri sözlük yoluyla çalışmaya devam eder.
+    yol = Path(fingerprint)
+    if len(fingerprint) < 400 and yol.is_file():
+        signals.append(_c2pa_gercek(yol))
+        return signals
+
     c2pa_label, c2pa_score = _c2pa_status(fp)
     signals.append(
         Signal(
