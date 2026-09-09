@@ -12,8 +12,15 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
+from krizkalkan_core.multimodal import scene
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, ExtractedClaim, Signal
+from krizkalkan_core.text.lexicon import normalize
+
+logger = logging.getLogger(__name__)
 
 _DESYNC_MARKERS = ("seslendirilmis", "klon", "dublaj", "manipule")
 
@@ -25,6 +32,81 @@ _CLAIM_VISUAL_ANCHORS: dict[str, tuple[str, ...]] = {
     "can_kaybı": ("hastane", "ambulans", "arama-kurtarma"),
     "resmî_açıklama": ("kursu", "mikrofon", "logo"),
 }
+
+
+#: İddia metninden afet türü çıkarımı. Sahne modeli afet TÜRÜ ile çalışır,
+#: iddia tipi ile değil: "altyapı_hasarı" bir deprem de olabilir sel de.
+AFET_TERIMLERI: dict[str, tuple[str, ...]] = {
+    "deprem": ("deprem", "artci", "sarsinti", "enkaz", "yikildi", "coktu", "fay"),
+    "yangın": ("yangin", "alev", "duman", "yandi", "orman yangini", "itfaiye"),
+    "sel": ("sel", "taskin", "su bask", "sular altinda", "dere tasti"),
+}
+
+
+def _afet_turu(claims: list[ExtractedClaim]) -> str | None:
+    """İddia metinlerinden afet türünü çıkarır; belirsizse None."""
+    metin = normalize(" ".join(c.text for c in claims))
+    for tur, terimler in AFET_TERIMLERI.items():
+        if any(terim in metin for terim in terimler):
+            return tur
+    return None
+
+
+def _sahne_sinyali(yol: Path, claims: list[ExtractedClaim]) -> Signal | None:
+    """Gerçek görüntüyle sahne–iddia uyumunu ölçer; model yoksa None."""
+    model = scene.get()
+    if model is None:
+        return None
+
+    tur = _afet_turu(claims)
+    try:
+        sonuc = model.karsilastir(yol, tur)
+    except Exception:  # okunamayan görüntü analizi durdurmamalı
+        logger.warning("Sahne karşılaştırması yapılamadı: %s", yol)
+        return None
+
+    if tur is None:
+        return Signal(
+            module="M2",
+            key="multimodal.scene_claim",
+            label="Sahne–iddia uyumu",
+            score=0.0,
+            raw_score=0.0,
+            abstained=True,
+            abstain_reason=(
+                "Metinden afet türü çıkarılamadı; sahne neyle karşılaştırılacağı belirsiz"
+            ),
+            evidence=[
+                Evidence(
+                    kind="kare",
+                    label=f"Görüntü en çok “{sonuc.en_yakin_tur}” sahnesine benziyor",
+                    detail="Bu bilgi karara girmez; iddia türü belirsizdir.",
+                )
+            ],
+        )
+
+    skor = sonuc.celiski_skoru
+    ayrinti = " · ".join(f"{t}: {s:.3f}" for t, s in sorted(sonuc.skorlar.items()))
+    return Signal(
+        module="M2",
+        key="multimodal.scene_claim",
+        label="Sahne–iddia uyumu",
+        score=skor,
+        raw_score=skor,
+        evidence=[
+            Evidence(
+                kind="kare",
+                label=(
+                    f"Görüntü “{tur}” iddiasını destekliyor"
+                    if sonuc.destekliyor
+                    else f"Görüntü “{tur}” yerine “{sonuc.en_yakin_tur}” sahnesine benziyor"
+                ),
+                locator="görsel-dil eşleştirmesi · karşıt istem",
+                detail=ayrinti
+                + (" · sahne hiçbir afet türüne benzemiyor" if sonuc.afet_disi else ""),
+            )
+        ],
+    )
 
 
 def _score(fingerprint: str, salt: str, low: float, high: float) -> float:
@@ -39,7 +121,11 @@ def analyse(
     claims: list[ExtractedClaim],
 ) -> list[Signal]:
     """Modaliteler arası çelişkileri ölçer."""
-    if not fingerprint or media_kind in ("yok", "image"):
+    # Görsel içerik ELENMEZ: dudak–ses hizalaması ve konuşmacı–yüz uyumu video
+    # ile ses gerektirir, ama sahne–iddia uyumu tek kareyle çalışır. İlk sürüm
+    # media_kind == "image" durumunda tümüyle çekiniyordu ve görsel içerikte
+    # M2 hiç çalışmıyordu.
+    if not fingerprint or media_kind == "yok":
         return [
             Signal(
                 module="M2",
@@ -48,7 +134,7 @@ def analyse(
                 score=0.0,
                 raw_score=0.0,
                 abstained=True,
-                abstain_reason="Çok modlu analiz için video ve ses gerekir",
+                abstain_reason="Çok modlu analiz için medya gerekir",
             )
         ]
 
@@ -116,6 +202,18 @@ def analyse(
         )
 
     # ── 3. Sahne–iddia uyumu ──
+    # Parmak izi gerçek bir dosyayı işaret ediyorsa görsel-dil modeli çalışır;
+    # demo parmak izleri sözlük yoluyla devam eder.
+    yol = Path(fingerprint)
+    if (
+        claims
+        and len(fingerprint) < 400
+        and yol.is_file()
+        and (sahne := _sahne_sinyali(yol, claims)) is not None
+    ):
+        signals.append(sahne)
+        return signals
+
     if claims:
         primary = claims[0]
         anchors = _CLAIM_VISUAL_ANCHORS.get(primary.claim_type.value, ())
