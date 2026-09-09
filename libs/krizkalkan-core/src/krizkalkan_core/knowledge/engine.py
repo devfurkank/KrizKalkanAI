@@ -52,7 +52,7 @@ class _Eslesme:
     yol: str
 
 
-def _overlap(claim_text: str, record: KnowledgeRecord) -> float:
+def _overlap(claim_text: str, record: KnowledgeRecord, *, norm: str | None = None) -> float:
     """Anahtar terim örtüşmesine dayalı benzerlik.
 
     Önce çapa kontrolü yapılır: kaydın ayırt edici terimlerinden hiçbiri
@@ -62,7 +62,10 @@ def _overlap(claim_text: str, record: KnowledgeRecord) -> float:
     Gerçek sistemde bu adım NLI-TR üzerine eğitilmiş bir çıkarım modelidir;
     sözleşme (benzerlik + karar) aynıdır.
     """
-    norm = normalize(claim_text)
+    # Normalize edilmiş metin dışarıdan verilebilir: havuz taraması aynı sorguyu
+    # 2.500+ kayda karşı ölçtüğü için her kayıtta yeniden normalize etmek,
+    # tek başına metin hattının gecikmesinin altıda birini yiyordu.
+    norm = normalize(claim_text) if norm is None else norm
     if not record.keywords:
         return 0.0
     if record.anchors and not any(a in norm for a in record.anchors):
@@ -91,7 +94,8 @@ def _verdict_of(record: KnowledgeRecord) -> KnowledgeVerdict:
 
 def _en_iyi_ortusme(claim_text: str) -> tuple[KnowledgeRecord | None, float]:
     """Havuzdaki en yüksek örtüşme skorlu kayıt."""
-    scored = [(record, _overlap(claim_text, record)) for record in corpus.records()]
+    norm = normalize(claim_text)
+    scored = [(record, _overlap(claim_text, record, norm=norm)) for record in corpus.records()]
     best, similarity = max(scored, key=lambda pair: pair[1])
     return best, similarity
 

@@ -42,6 +42,15 @@ AZAMI_ORTME = 24
 #: Örtme sonrası skor düşüşü bu değerin altındaysa kelime kanıt sayılmaz.
 ORTME_ESIGI = 0.02
 
+#: Örtme kanıtının hesaplanması için gereken asgari yardım olasılığı.
+#:
+#: Karar eşiği (model kartından gelen ~0,0003) çok düşüktür ve içeriğin
+#: yaklaşık beşte birini aşar; o eşikte kanıt hesaplamak, metin hattı
+#: gecikmesinin %79'unu tek başına yiyordu. Ayrıca olasılık 0,0005 iken
+#: "hangi kelime bu skoru taşıyor" sorusunun anlamlı bir cevabı yoktur.
+#: Kanıt, açıklanmaya değer güçte bir sinyal için üretilir.
+KANIT_ESIGI = 0.5
+
 _KELIME = re.compile(r"\w+", re.UNICODE)
 
 
@@ -148,7 +157,7 @@ class M3Model:
             yardim_olasilik=round(yardim_olasilik, 6),
             yardim_kanitlari=(
                 self._ortme_kanitlari(metin, yardim_olasilik)
-                if kanit and yardim_olasilik >= self.yardim_esigi
+                if kanit and yardim_olasilik >= KANIT_ESIGI
                 else []
             ),
         )
