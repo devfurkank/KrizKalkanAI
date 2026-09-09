@@ -115,10 +115,20 @@ def _sozluk_analizi(raw_text: str) -> tuple[TextAnalysis, list[Signal]]:
     norm = lex.normalize(raw_text)
 
     # ── Görev B1 ──
+    #
+    # Skorlama iki biçimde denenir: ölçünlü katlama ve ağız normalizasyonu.
+    # Adalet denetimi, ağız çekimlerinin tespiti yarıya düşürdüğünü ölçtü;
+    # kanıt konumları yalnızca ölçünlü biçimden üretilebildiği için (ağız
+    # normalizasyonu uzunluğu değiştirir) skor iyisinden, kanıt ölçünlüden alınır.
+    agiz = lex.agiz_normalize(raw_text)
     labels: dict[L, float] = {}
     label_hits: dict[L, list[str]] = {}
     for label, patterns in lex.PATTERNS.items():
         score, hits = lex.match_score(norm, patterns)
+        agiz_score, agiz_hits = lex.match_score(agiz, patterns)
+        if agiz_score > score:
+            score = agiz_score
+            hits = hits or agiz_hits
         if score > 0:
             labels[label] = score
             label_hits[label] = hits

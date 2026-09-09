@@ -377,3 +377,61 @@ def match_score(text: str, patterns: list[tuple[str, float]]) -> tuple[float, li
             hits.append(m.group(0).strip())
             remaining *= 1.0 - weight
     return round(1.0 - remaining, 4), hits
+
+
+# ─────────────────────────── Ağız normalizasyonu ───────────────────────────
+
+#: Yaygın ağız çekimlerini ölçünlü biçime yaklaştıran kurallar.
+#:
+#: Adalet denetimi (docs/metrikler/adalet.md) ölçünlü Türkçe dışında yazan
+#: kullanıcıların provokatif içerikte YARI oranda korunduğunu gösterdi: tespit
+#: ölçünlü Türkçe'de 0,25 iken Karadeniz/Ege/gençlik dilinde 0,125. Desenler
+#: kök üzerinde eşleştiği için sorun kökte değil çekimde; bu kurallar yalnızca
+#: çekimi düzeltir, kökü değiştirmez.
+#:
+#: Şimdiki zaman eki ünlü uyumuna göre seçilir: kökün son ünlüsü kalınsa
+#: "-uyor", inceyse "-iyor". Uyumu gözetmeyen sabit eşleme "konuşmayr"ı
+#: "konusmiyor" yapıyor ve desen yine tutmuyordu.
+DUZ_AGIZ_KURALLARI: tuple[tuple[str, str], ...] = (
+    (r"iyo\b", "iyor"),
+    (r"uyo\b", "uyor"),
+    (r"elum\b", "elim"),
+    (r"alum\b", "alim"),
+    (r"umuz\b", "imiz"),
+    (r"imuz\b", "imiz"),
+    (r"sun\b", "sin"),
+    (r"duk\b", "dik"),
+    (r"tuk\b", "tik"),
+    (r"nuz\b", "niz"),
+    (r"lek\b", "lelim"),
+    (r"cunki\b", "cunku"),
+    (r"iler\b", "ilar"),
+)
+
+#: Kalın ünlüler — şimdiki zaman ekinin biçimini belirler.
+KALIN_UNLULER = "aiou"
+
+#: "-ayr/-eyr" biçimindeki şimdiki zaman: kök + ek olarak yakalanır.
+_SIMDIKI = re.compile(r"(\w+?)[ae]yr(ler|lar)?\b")
+
+_DUZ_DERLENMIS = tuple((re.compile(d), y) for d, y in DUZ_AGIZ_KURALLARI)
+
+
+def _simdiki_zaman(eslesme: re.Match[str]) -> str:
+    """Ağız şimdiki zamanını ünlü uyumuna göre ölçünlü biçime çevirir."""
+    kok, cogul = eslesme.group(1), eslesme.group(2)
+    unluler = [k for k in kok if k in "aeiou"]
+    ek = "uyor" if unluler and unluler[-1] in KALIN_UNLULER else "iyor"
+    return kok + ek + ("lar" if cogul else "")
+
+
+def agiz_normalize(metin: str) -> str:
+    """Katlanmış metni ağız çekimlerinden arındırır.
+
+    `normalize()` çıktısı üzerinde çalışır. Uzunluğu değiştirdiği için kanıt
+    konumları bu biçimden ÜRETİLEMEZ; yalnızca skorlama için kullanılır.
+    """
+    n = _SIMDIKI.sub(_simdiki_zaman, normalize(metin))
+    for desen, yerine in _DUZ_DERLENMIS:
+        n = desen.sub(yerine, n)
+    return n
