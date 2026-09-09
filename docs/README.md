@@ -2,11 +2,16 @@
 
 Proje dokümantasyonu.
 
-| Doküman | İçerik |
-| --- | --- |
-| `mimari.md` | Sistem mimarisi ve modül sözleşmeleri |
-| `veri-envanteri.md` | Veri setleri: kaynak, lisans, hacim, dağıtım biçimi, hedef modül |
-| `model-kartlari/` | Her model için model kartı (amaç, sınırlar, performans) |
-| `etik-protokol.md` | KVKK, sentetik veri üretim protokolü, kötüye kullanım analizi |
+| Doküman | İçerik | Üretimi |
+| --- | --- | --- |
+| `mimari.md` | Sistem mimarisi, füzyon sırası, ölçümle verilen kararlar | elle |
+| `veri-envanteri.md` | Veri setleri: kaynak, lisans, hacim, **dağıtım biçimi**, hedef modül | `scripts/data/fetch_text.py` |
+| `metrikler/` | Modül başına ölçüm raporları | `scripts/eval/*.py` |
+| `model-kartlari/` | Her model için kart (amaç, veri, ölçüm, **bilinen sınırlar**) | `scripts/eval/*.py` |
+| `etik-protokol.md` | KVKK, sentetik veri üretim protokolü, kötüye kullanım analizi | ⏳ yazılmadı |
+
+Metrik raporları ve model kartları **elle yazılmaz**: her biri üstünde üreten
+betiği, tarihi ve git commit'ini taşır. Ölçümü tekrarlamak için `mimari.md`
+bölüm 6'ya bakın.
 
 Yarışma yol haritası bir üst dizindeki `KrizKalkan-YolHaritasi.md` dosyasındadır.
