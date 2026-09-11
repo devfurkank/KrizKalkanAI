@@ -11,6 +11,7 @@ help:
 	@echo "  make model-durum  Yüklü model ağırlıklarını ve çalışma zamanını gösterir"
 	@echo "  make veri         Veri kümelerini indirir, uyumlaştırır, böler"
 	@echo "  make m5-index     M5 bilgi havuzunu ve geri getirme indeksini kurar"
+	@echo "  make m4-model     M4 sentetik görüntü detektörlerini kurar (DeepReality → ONNX)"
 	@echo "  make up           Altyapıyı başlatır (Postgres, Redis, MinIO)"
 	@echo "  make down         Altyapıyı durdurur"
 	@echo "  make dev-web      Next.js geliştirme sunucusu (:3000)"
@@ -56,6 +57,12 @@ veri:
 m5-index:
 	$(VENV)/bin/python scripts/data/build_knowledge.py
 	$(VENV)/bin/python scripts/data/build_index.py
+
+# M4: DeepReality ağırlıkları → int8 ONNX detektörler.
+# Kaynak dizin KK_DEEPREALITY_DIR ile verilir; ağırlıklar commit edilmez.
+# Kabul kapısı ölçümle açılır: scripts/eval/m4_synthetic.py
+m4-model:
+	$(VENV)/bin/python scripts/data/build_synthetic.py
 
 up:
 	docker compose -f infra/compose.yaml up -d

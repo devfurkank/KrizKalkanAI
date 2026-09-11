@@ -100,13 +100,25 @@ def fuse(
         )
 
     # ── 2. Sentetik medya ──
+    #
+    # `synthetic.manipulation` (tam üretim mi, mevcut içeriğin kurcalanması mı)
+    # koşula GİRMEZ, yalnızca kanıt olarak taşınır. Ölçüldü: üç sınıflı detektör
+    # tamamı gerçek olan kümelerde de üretilmiş sınıflarından birini seçiyor ve
+    # "gerçek" sınıfına ortalama 0,001–0,004 olasılık veriyor
+    # (docs/metrikler/m4.md · bölüm 4). Karara katılması gerçek afet
+    # fotoğraflarını sınıflandırırdı; kanıt panelinde görünmesi ise sınıfın
+    # neye dayandığını açıklar.
     synthetic_evidence = max(synth_video, synth_audio, c2pa)
     if synthetic_evidence >= 0.62:
         return (
             Verdict.SENTETIK_MEDYA,
             min(0.96, synthetic_evidence),
             contributors(
-                "synthetic.video", "synthetic.audio", "synthetic.c2pa", "multimodal.av_sync"
+                "synthetic.video",
+                "synthetic.audio",
+                "synthetic.c2pa",
+                "synthetic.manipulation",
+                "multimodal.av_sync",
             ),
         )
 

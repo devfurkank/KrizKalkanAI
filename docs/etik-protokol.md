@@ -313,12 +313,13 @@ nereden geldiği her zaman izlenebilir.
 
 ### 8.1. Lisans uyumu
 
-İki veri kümesi ticari kullanıma kapalı:
+Üç veri kümesi ticari kullanıma kapalı:
 
 | Küme | Lisans | Kullanım |
 |---|---|---|
 | Turkish Disaster News GeoNLP | CC BY-NC 4.0 | Yalnızca değerlendirmede kullanılıyor, üretim modeline girmedi |
 | HumAID | CC BY-NC-SA 4.0 | M3 eğitiminde **kullanıldı** |
+| ComplexDataLab/OpenFake | CC BY-NC 4.0 | Yalnızca M4 değerlendirmesinde kullanılıyor, hiçbir ağırlık bu kümeyle eğitilmedi |
 
 > ⚠️ **HumAID ile eğitilen M3 ağırlığı ticari kullanımda sorun
 > yaratabilir.** Bu durum raporun iş modeli bölümüyle çelişebilir. Ticari
@@ -328,6 +329,19 @@ nereden geldiği her zaman izlenebilir.
 > HumAID'in lisansı iki yerde farklı yazılmış: kart üst verisinde
 > `cc-by-nc-sa-4.0`, README'nin lisans bölümünde `cc-by-nc-4.0`. İkisi de
 > ticari kullanımı yasaklıyor, dolayısıyla sonuç değişmiyor.
+
+**M4 görüntü ağırlıkları ticari kullanıma açıktır.** M3'teki durumun
+aksine, sentetik görüntü detektörlerinin zincirinde ticari kısıt yoktur:
+
+| Bileşen | Lisans | Not |
+|---|---|---|
+| İkili detektör (DeepReality PIN-B2) | MIT | Takım üyesinin kendi projesi; kaynak ve ağırlık aynı elden |
+| İkili detektörün eğitim kümesi (OpenDeepfake-Preview) | Apache 2.0 | Ticari kullanıma açık |
+| Üç sınıflı detektör (AI-vs-Deepfake-vs-Real-Siglip2) | Apache 2.0 | Harici hazır ağırlık, atıf yeterli |
+
+> Değerlendirme kümesinin (OpenFake, CC BY-NC) lisansı ağırlığa **bulaşmaz**:
+> o küme yalnızca ölçüm için okunur, hiçbir parametre ondan öğrenilmez. Ayrım
+> önemlidir ve ticari dağıtımda savunulabilir olması için burada yazılıdır.
 
 **MiDe22 lisansı doğrulanmalı.** Veri, `ogozcelik/turkish-fake-news-detection`
 adlı bir **aynadan** alındı ve bu ayna MIT lisanslı olarak etiketlenmiş. Özgün

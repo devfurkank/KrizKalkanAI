@@ -84,7 +84,8 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M2 | AV senkron, konuşmacı–yüz | ⏳ kurulmadı | — |
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
 | M4 | C2PA köken üstverisi | kriptografik doğrulama | testlerle |
-| M4 | Video, ses | ⏳ danışman modeli / ASVspoof | — |
+| M4 | Sentetik görüntü | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4.md` |
+| M4 | Video, ses | ⏳ kare çıkarımı yok / ASVspoof | — |
 | M5 | Bilgi havuzu geri getirme | e5 gömme + indeks | `m5.md` |
 | M5 | Çıkarım (NLI) | ⛔ eğitildi, **devreye alınmadı** | `m5.md` |
 | M6 | Kalibrasyon ve füzyon | ölçülmüş isotonic | `m6.md` |
@@ -190,12 +191,33 @@ metinlerde yanlış pozitif artışı ölçülmedi.
 
 Ayrıntı: `docs/metrikler/adalet.md`
 
-### Karşılaştırmalı karar, mutlak eşik değil (M2, M5)
+### Karşılaştırmalı karar, mutlak eşik değil (M2, M5, M4)
 
-İki modülde de aynı ders çıktı: gömme benzerlikleri dar bir bantta sıkışıyor ve
-mutlak eşik seçmek anlamsız. M5'te en yüksek skorlu alakasız sorgu bir resmî
-duyuruydu; M2'de afet dışı istemler enkaz sahnelerini geçiyordu. Her ikisinde
-de karar **karşılaştırmayla** veriliyor.
+Üç modülde de aynı ders çıktı: skorlar dar bir bantta sıkışıyor ve mutlak eşik
+seçmek anlamsız. M5'te en yüksek skorlu alakasız sorgu bir resmî duyuruydu;
+M2'de afet dışı istemler enkaz sahnelerini geçiyordu. M4'te sentetik görüntü
+skorları 0,93–0,97 bandına sıkıştı. M2 ve M5'te karşılaştıracak bir şey vardı
+(karşıt istem, aday kayıt) ve karar **karşılaştırmayla** verildi. M4'te yok:
+tek bir görüntünün doğal bir karşılaştırma eşi bulunmuyor. Sonuç, modülün
+devreye alınmaması oldu.
+
+### M4 sentetik görüntü modeli devreye alınmadı
+
+| | |
+|---|---|
+| **Plan** | DeepReality detektörleri int8 ONNX'e taşınıp `synthetic.video` sinyalini besleyecekti |
+| **Ölçüm 1** | Çapraz veri kümesinde (OpenFake, 22 üretici ailesi) AUC **0,7818** — raporun ≥ 0,72 hedefini karşılıyor |
+| **Ölçüm 2** | Gerçek Türk afet fotoğraflarının **%99,71'i** 0,50 eşiğinde "üretilmiş" çıkıyor (n=686) |
+| **Ölçüm 3** | Yanlış pozitifi %5'e indiren eşikte duyarlılık 0,25'e düşüyor; %1'de 0,10 |
+| **Ölçüm 4** | Üç sınıflı detektör, tamamı gerçek olan kümelerde "gerçek" sınıfına ortalama 0,001–0,004 olasılık veriyor |
+| **Doğrulama** | Kapı zorla açıldığında gerçek bir Kahramanmaraş deprem fotoğrafı **SENTETİK_MEDYA (güven 0,835)** olarak sınıflandı; kapalıyken TEMİZ |
+| **Karar** | Ağırlık yüklenmiyor, M4 kural yolunda kalıyor. Kabul kapısı AUC'ye değil **afet alanı özgüllüğüne** bağlandı |
+
+İki ölçüm çelişmiyor: AUC bir sıralama ölçüsüdür ve model gerçekten sıralıyor.
+Kullanılabilirliği belirleyen ise çalışma noktasıdır. Kapıyı yetenek metriğine
+bağlamak, geçen bir AUC'nin gerçek afet fotoğraflarını sentetik ilan eden bir
+modeli sisteme sokmasına izin verirdi — bu yüzden kapı **zarar metriğine**
+bağlıdır.
 
 ---
 
@@ -206,6 +228,7 @@ make setup            # bağımlılıklar
 make setup-models     # çıkarım katmanı (ONNX, FAISS, sklearn)
 make veri             # metin kümeleri: indir → doğrula → uyumlaştır → böl
 make m5-index         # DMM havuzu + geri getirme indeksi
+make m4-model         # sentetik görüntü detektörleri (DeepReality → int8 ONNX)
 make depo-denetimi    # kaynak dosyalar depoda mı?
 make test             # KK_MODELS=off ve on
 ```
@@ -221,6 +244,7 @@ KK_MODELS=on python scripts/eval/m1_robustness.py    # köken dayanıklılığı
 KK_MODELS=on python scripts/eval/m2_scene.py         # sahne–iddia
 KK_MODELS=on python scripts/eval/m3_text.py --onnx --kontrol-noktasi models/m3_text
 KK_MODELS=on python scripts/eval/m3_fairness.py      # adalet denetimi
+KK_MODELS=on python scripts/eval/m4_synthetic.py     # sentetik görüntü (çapraz veri kümesi)
 KK_MODELS=on python scripts/eval/m5_knowledge.py     # havuz + karar
 KK_MODELS=on python scripts/eval/m6_fusion.py        # kalibrasyon + füzyon
 KK_MODELS=on python scripts/eval/m8_radar.py         # kümeleme
@@ -233,11 +257,19 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
 
 - **M2 · AV senkron ve konuşmacı–yüz** kurulmadı. Ses–görüntü veri kümeleri
   EULA gerektiriyor.
-- **M4 · video ve ses** kurulmadı. Video modeli danışmandan bekleniyor; ses
+- **M4 · sentetik görüntü** kuruldu, ölçüldü ve **devreye alınmadı**: alan
+  içindeki çalışma noktası kabul edilebilir değil (`docs/metrikler/m4.md`).
+  Dışa aktarım, motor, değerlendirme ve testler yerinde; daha iyi bir ağırlık
+  tek komutla devreye girer.
+- **M4 · video ve ses** kurulmadı. Video için kare çıkarımı (ffmpeg) yok; ses
   için ASVspoof üzerinde eğitim planlı.
 - **SENTETİK_MEDYA ve MANİPÜLE_MEDYA** sınıfları uçtan uca değerlendirme
   kümesinde yok — o sınıflar M2/M4'ü gerektiriyor. Makro-F1 bu nedenle rapor
   3.2'deki altı sınıflı hedefle doğrudan karşılaştırılamaz.
+- **`synthetic.video` kalibrasyonu** hiç ölçülmemişti; M4 çalışması ilk ölçümü
+  üretti (ECE 0,2990 → 0,0755). Noktalar `docs/metrikler/m4.md` içinde duruyor
+  ama **devreye alınmadı**: kalibrasyon M6'nın veri ürünüdür ve benimseme,
+  uçtan uca kümeye SENTETİK_MEDYA vakaları eklendikten sonra yapılmalıdır.
 - **8 etiketli manipülatif söylem başlığı** eğitilmedi; sistem sözlük yolunu
   kullanıyor. Provokatif çerçeveleme sınıfının düşük başarımının sebebi budur.
 - **Video hattı** ffmpeg gerektiriyor ve gecikme ölçümü yalnızca görsel/metin
