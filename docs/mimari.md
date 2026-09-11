@@ -84,7 +84,9 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M2 | AV senkron, konuşmacı–yüz | ⏳ kurulmadı | — |
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
 | M4 | C2PA köken üstverisi | kriptografik doğrulama | testlerle |
+| M4 | Üretici üstverisi | ✅ **kural tabanlı · devrede** | `m4-ustveri.md` |
 | M4 | Sentetik görüntü | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4.md` |
+| M4 | Hata seviyesi analizi | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4-ela.md` |
 | M4 | Video, ses | ⏳ kare çıkarımı yok / ASVspoof | — |
 | M5 | Bilgi havuzu geri getirme | e5 gömme + indeks | `m5.md` |
 | M5 | Çıkarım (NLI) | ⛔ eğitildi, **devreye alınmadı** | `m5.md` |
@@ -201,6 +203,20 @@ skorları 0,93–0,97 bandına sıkıştı. M2 ve M5'te karşılaştıracak bir 
 tek bir görüntünün doğal bir karşılaştırma eşi bulunmuyor. Sonuç, modülün
 devreye alınmaması oldu.
 
+### M4'te belgesel sinyal, olasılıksal sinyali geçti
+
+| | |
+|---|---|
+| **Beklenti** | Sinir ağı detektörü M4'ün omurgası olacaktı |
+| **Ölçüm 1** | Detektör afet alanında kullanılamaz çıktı (aşağıda) |
+| **Ölçüm 2** | Dosyaya gömülü üretici üstverisi: %9,0 yakalama, **1.678 gerçek görüntüde 0 yanlış pozitif** (`m4-ustveri.md`) |
+| **Ölçüm 3** | Hata seviyesi analizi: ayrım gücü AUC 0,5805 — rastgeleden farksız (`m4-ela.md`) |
+| **Karar** | M4'ün çalışan iki yolu **belgesel**: C2PA imzası ve üretici üstverisi. Olasılıksal iki yol (sinir ağı, ELA) ölçüldü ve devreye alınmadı |
+
+Bu, raporun köken önceliği tezinin M4 içinde de doğrulanması demek: belgesel
+kanıt, olasılıksal çıkarımdan önce gelir ve bu tercih artık ölçülmüş bir
+gerekçeye dayanıyor.
+
 ### M4 sentetik görüntü modeli devreye alınmadı
 
 | | |
@@ -245,6 +261,8 @@ KK_MODELS=on python scripts/eval/m2_scene.py         # sahne–iddia
 KK_MODELS=on python scripts/eval/m3_text.py --onnx --kontrol-noktasi models/m3_text
 KK_MODELS=on python scripts/eval/m3_fairness.py      # adalet denetimi
 KK_MODELS=on python scripts/eval/m4_synthetic.py     # sentetik görüntü (çapraz veri kümesi)
+python scripts/eval/m4_ustveri.py                    # üretici üstverisi (ağırlık gerekmez)
+python scripts/eval/m4_ela.py                        # hata seviyesi analizi (ağırlık gerekmez)
 KK_MODELS=on python scripts/eval/m5_knowledge.py     # havuz + karar
 KK_MODELS=on python scripts/eval/m6_fusion.py        # kalibrasyon + füzyon
 KK_MODELS=on python scripts/eval/m8_radar.py         # kümeleme
@@ -261,6 +279,9 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
   içindeki çalışma noktası kabul edilebilir değil (`docs/metrikler/m4.md`).
   Dışa aktarım, motor, değerlendirme ve testler yerinde; daha iyi bir ağırlık
   tek komutla devreye girer.
+- **M4 · hata seviyesi analizi** kuruldu, ölçüldü ve **devreye alınmadı**:
+  ayrım gücü AUC 0,5805 ile rastgeleden farksız; yöntem yapıştırmayı değil
+  görüntünün doğal doku değişimini ölçüyor (`docs/metrikler/m4-ela.md`).
 - **M4 · video ve ses** kurulmadı. Video için kare çıkarımı (ffmpeg) yok; ses
   için ASVspoof üzerinde eğitim planlı.
 - **SENTETİK_MEDYA ve MANİPÜLE_MEDYA** sınıfları uçtan uca değerlendirme

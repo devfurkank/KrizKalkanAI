@@ -75,6 +75,7 @@ def fuse(
     synth_video = _active(signals, "synthetic.video")
     synth_audio = _active(signals, "synthetic.audio")
     c2pa = _active(signals, "synthetic.c2pa")
+    ustveri = _active(signals, "synthetic.metadata")
     av_sync = _active(signals, "multimodal.av_sync")
     speaker_face = _active(signals, "multimodal.speaker_face")
     scene_claim = _active(signals, "multimodal.scene_claim")
@@ -108,7 +109,11 @@ def fuse(
     # (docs/metrikler/m4.md · bölüm 4). Karara katılması gerçek afet
     # fotoğraflarını sınıflandırırdı; kanıt panelinde görünmesi ise sınıfın
     # neye dayandığını açıklar.
-    synthetic_evidence = max(synth_video, synth_audio, c2pa)
+    # `synthetic.metadata` belgesel bir sinyaldir: dosyaya gömülü üretim
+    # parametresi bir tahmin değil, üretici aracın kendi kaydıdır. Ölçüldü
+    # (n=592, OpenFake): gerçek görüntülerde yanlış pozitif %0,0
+    # (docs/metrikler/m4-ustveri.md). Bu yüzden C2PA ile aynı torbadadır.
+    synthetic_evidence = max(synth_video, synth_audio, c2pa, ustveri)
     if synthetic_evidence >= 0.62:
         return (
             Verdict.SENTETIK_MEDYA,
@@ -117,6 +122,7 @@ def fuse(
                 "synthetic.video",
                 "synthetic.audio",
                 "synthetic.c2pa",
+                "synthetic.metadata",
                 "synthetic.manipulation",
                 "multimodal.av_sync",
             ),

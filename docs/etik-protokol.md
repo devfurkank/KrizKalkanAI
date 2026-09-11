@@ -267,6 +267,28 @@ medya **içermiyor**. Görüntü tabanlı vakalarda gerçek, açık lisanslı
 Wikimedia Commons görüntüleri kullanılıyor. Görüntüler olduğu gibi kalıyor,
 yalnızca yanlarına **şablondan üretilen metin** ekleniyor.
 
+### 6.2. İkinci sentetik içerik: ELA değerlendirme örnekleri
+
+`scripts/eval/m4_ela.py`, hata seviyesi analizini ölçmek için **yapıştırılmış
+görüntüler** üretir: bir fotoğrafın bölgesine başka bir fotoğraftan parça
+konur ve dosya yeniden kaydedilir. Etiketli "oynanmış görüntü" veri kümesi
+bulunmadığı için başka yol yok.
+
+| Kural | Durum |
+|---|---|
+| İzole ortam | ✅ Dosyalar geçici dizinde üretilir, ölçüm bitince silinir |
+| İşaretleme | ✅ Görünür filigran gerekmiyor: dosyalar hiç saklanmıyor, yalnızca bellekte ölçülüp atılıyor |
+| **Gerçek kişi yasağı** | ✅ Kaynaklar ImageNet/DOCCI nesne ve sahne fotoğrafları; kimlik kurgusu yok |
+| **Mağdur görüntüsü yasağı** | ✅ **Afet korpusu bu üretimde HİÇ kullanılmıyor.** Kaynaklar afet dışı nötr fotoğraflar; afet görüntüleri yalnızca yanlış pozitif ölçümünde, dokunulmadan okunuyor |
+| Dağıtım yasağı | ✅ Hiçbir ikili dosya depoya girmiyor |
+| Kayıt | ✅ Amaç, yöntem ve imha: bu tablo ve betiğin kendisi |
+| Danışman onayı | ⏳ Alınmadı |
+
+> Mağdur görüntüsü yasağı bu çalışmada **tasarımı belirledi.** Gerçek afet
+> fotoğraflarına parça yapıştırmak teknik olarak daha gerçekçi bir test
+> üretirdi; kural bunu yasakladığı için nötr kaynaklara geçildi ve bu tercih
+> ölçüm raporunda da yazılı.
+
 ---
 
 ## 7. Kötüye kullanım senaryoları

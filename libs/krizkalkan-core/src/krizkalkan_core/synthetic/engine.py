@@ -8,9 +8,14 @@ Kritik davranış: dağılım dışı (OOD) tespiti eşiği aşıldığında mod
 
 Modülün üç yolu vardır ve hangisinin işlediği sinyalde görünür:
 
-    görüntü + ağırlık var   → `synthetic/image.py` · iki bağımsız detektör
-    gerçek dosya            → `synthetic/c2pa.py`  · kriptografik doğrulama
+    görüntü + ağırlık var   → `synthetic/image.py`    · iki bağımsız detektör
+    gerçek dosya            → `synthetic/c2pa.py`     · kriptografik doğrulama
+    gerçek dosya            → `synthetic/metadata.py` · gömülü üretici imzası
     demo parmak izi / ağırlık yok → sözlük yolu (aşağıdaki işaretler)
+
+İlk üçü birlikte çalışır ve farklı güçtedir: C2PA imzası kriptografiktir,
+üretici üstverisi beyandır, sinir ağı çıkarımdır. Füzyon bunları aynı torbaya
+koymaz — belgesel olanlar önce gelir.
 
 Ağırlık yoksa sistem çökmez, sözlük yoluna düşer: `KK_MODELS=off` bugünkü
 davranışı aynen geri getirir.
@@ -23,7 +28,7 @@ from pathlib import Path
 
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, Signal
-from krizkalkan_core.synthetic import image
+from krizkalkan_core.synthetic import image, metadata
 from krizkalkan_core.synthetic.c2pa import dogrula as c2pa_dogrula
 
 logger = logging.getLogger(__name__)
@@ -207,6 +212,45 @@ def _goruntu_sinyalleri(yol: Path) -> list[Signal] | None:
     return sinyaller
 
 
+def _ustveri_sinyali(yol: Path) -> Signal:
+    """Dosyaya gömülü üretici izlerini okur.
+
+    Üstveri yokluğu çekinme sebebidir, suçlama değil: sosyal platformlar
+    yüklemede üstveriyi siler ve imzasız içerik kuraldır, istisna değil.
+    """
+    sonuc = metadata.incele(yol)
+    ayrinti = " · ".join(
+        p
+        for p in (
+            f"işaret: {sonuc.isaret}" if sonuc.isaret else None,
+            f"kamera: {sonuc.kamera}" if sonuc.kamera else None,
+            f"gömülü metin: “{sonuc.alinti}”" if sonuc.alinti else None,
+        )
+        if p
+    )
+    return Signal(
+        module="M4",
+        key="synthetic.metadata",
+        label="Üretici üstverisi",
+        score=sonuc.skor,
+        raw_score=sonuc.skor,
+        abstained=sonuc.cekinmeli,
+        abstain_reason=(
+            "Dosyada üretim üstverisi yok — bu, içeriğin sahte olduğu anlamına gelmez; "
+            "sosyal platformlar yüklemede üstveriyi siler"
+            if sonuc.cekinmeli
+            else None
+        ),
+        evidence=[
+            Evidence(
+                kind="ustveri",
+                label=sonuc.aciklama,
+                detail=ayrinti or None,
+            )
+        ],
+    )
+
+
 def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[Signal]:
     """Sentetik medya sinyallerini üretir."""
     if not fingerprint or media_kind == "yok":
@@ -259,9 +303,11 @@ def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[S
             )
         )
 
-    # ── C2PA ──
-    # İmza kriptografik bir kayıttır: dosya gerçekse tahmin edilmez, doğrulanır.
+    # ── Üretici üstverisi ve C2PA ──
+    # İkisi de belgeseldir: biri üreticinin beyanı, diğeri kriptografik imza.
+    # Yalnızca gerçek dosyada anlamlıdırlar.
     if gercek_dosya:
+        signals.append(_ustveri_sinyali(yol))  # type: ignore[arg-type]
         signals.append(_c2pa_gercek(yol))  # type: ignore[arg-type]
         return signals
 
