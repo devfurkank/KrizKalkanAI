@@ -29,6 +29,7 @@ from pathlib import Path
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, Signal
 from krizkalkan_core.synthetic import image, metadata
+from krizkalkan_core.synthetic.c2pa import C2paDurum
 from krizkalkan_core.synthetic.c2pa import dogrula as c2pa_dogrula
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,9 @@ def _c2pa_gercek(yol: Path) -> Signal:
             f"kaynak türü: {sonuc.dijital_kaynak.rsplit('/', 1)[-1]}"
             if sonuc.dijital_kaynak
             else None,
+            f"manifest zinciri: {sonuc.manifest_sayisi} kayıt"
+            if sonuc.manifest_sayisi > 1
+            else None,
             sonuc.ayrinti,
         )
         if p
@@ -90,8 +94,14 @@ def _c2pa_gercek(yol: Path) -> Signal:
         abstained=sonuc.cekinmeli,
         abstain_reason=(
             # İmza yokluğu içerik hakkında hiçbir şey söylemez: C2PA yaygın
-            # değildir ve imzasız içerik kuraldır, istisna değil.
-            "İçerikte C2PA imzası yok — bu, içeriğin sahte olduğu anlamına gelmez"
+            # değildir ve imzasız içerik kuraldır, istisna değil. "Veri var ama
+            # okunamadı" ise ayrı bir durumdur ve ayrı yazılır.
+            (
+                "İçerikte C2PA verisi var ancak doğrulanamadı — bu bir suçlama "
+                "değildir, incelenmeye değer bir not"
+                if sonuc.durum is C2paDurum.IMZA_OKUNAMADI
+                else "İçerikte C2PA imzası yok — bu, içeriğin sahte olduğu anlamına gelmez"
+            )
             if sonuc.cekinmeli
             else None
         ),

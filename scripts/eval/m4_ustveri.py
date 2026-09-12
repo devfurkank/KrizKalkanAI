@@ -123,7 +123,7 @@ def afet_olc(sinir: int) -> dict:
     sayim: dict[str, int] = defaultdict(int)
     kameralar: list[str] = []
 
-    for kayit in kayitlar[:sinir]:
+    for kayit in kayitlar[: sinir or len(kayitlar)]:
         yol = AFET_KORPUSU / "goruntuler" / kayit["dosya"]
         if not yol.exists():
             continue
@@ -255,7 +255,7 @@ def _rapor_yaz(capraz: dict, afet: dict) -> Path:
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--sinir", type=int, default=2000, help="çapraz kümeden örnek sayısı")
-    a.add_argument("--afet-sinir", type=int, default=689)
+    a.add_argument("--afet-sinir", type=int, default=0, help="0 = korpusun tamamı")
     args = a.parse_args()
 
     import tempfile

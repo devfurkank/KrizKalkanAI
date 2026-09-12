@@ -200,3 +200,154 @@ def test_imzali_icerik_sentetik_siniflanir(imzali_goruntu: Path) -> None:
     )
     assert sonuc.verdict is Verdict.SENTETIK_MEDYA
     assert sonuc.confidence > 0.8
+
+
+# ────────────────────────── manifest zinciri ──────────────────────────
+#
+# Zincir mantığı gerçek dosya gerektirmez: `c2pa.Reader`'ın döndürdüğü JSON
+# taklit edilir. Kriptografik doğrulama yukarıdaki gerçek imzalı dosya
+# testlerinde zaten sınanıyor; burada sınanan şey manifestler arasında
+# gezinme davranışıdır.
+
+
+def _sahte_okuyucu(monkeypatch, modul, ham: dict) -> None:
+    """`c2pa.Reader` yerine sabit bir JSON döndüren bağlam yöneticisi koyar."""
+    import json as _json
+    from contextlib import contextmanager
+
+    class _Okuyucu:
+        is_valid = True
+
+        def json(self) -> str:
+            return _json.dumps(ham)
+
+    @contextmanager
+    def _reader(_yol):
+        yield _Okuyucu()
+
+    sahte = type("_c2pa", (), {"Reader": _reader})
+    monkeypatch.setitem(__import__("sys").modules, "c2pa", sahte)
+    monkeypatch.setattr(modul, "logger", modul.logger)
+
+
+def _manifestler(aktif: dict, ustler: dict[str, dict]) -> dict:
+    """`c2pa.Reader.json()` çıktısının taklidi."""
+    manifestler = {"aktif": aktif, **ustler}
+    return {
+        "active_manifest": "aktif",
+        "manifests": manifestler,
+        "validation_state": "Valid",
+    }
+
+
+def _ai_eylemi() -> dict:
+    return {
+        "label": "c2pa.actions.v2",
+        "data": {"actions": [{"action": "c2pa.created", "digitalSourceType": AI_KAYNAK}]},
+    }
+
+
+def test_ust_manifestteki_ai_kaydi_bulunur(monkeypatch, tmp_path) -> None:
+    """Belirleyici kayıt üst manifestteyse yine de bulunmalı.
+
+    OpenAI görsellerinde tipik dizilim budur: üst manifest üretimi bildirir,
+    aktif manifest yalnızca "açıldı" der. Zincir taraması eklenmeden önce bu
+    dosyalar "cihaz imzalı" sayılıyordu — yani belirleyici kanıt kaçıyordu.
+    """
+    import krizkalkan_core.synthetic.c2pa as modul
+
+    ham = _manifestler(
+        aktif={
+            "claim_generator": "Photos 1.0",
+            "assertions": [
+                {"label": "c2pa.actions", "data": {"actions": [{"action": "c2pa.opened"}]}}
+            ],
+        },
+        ustler={"ust": {"claim_generator": "GPT-4o", "assertions": [_ai_eylemi()]}},
+    )
+    _sahte_okuyucu(monkeypatch, modul, ham)
+
+    sonuc = modul.dogrula(tmp_path / "x.jpg")
+
+    assert sonuc.durum is C2paDurum.AI_IMZALI
+    assert sonuc.zincirden is True
+    assert sonuc.manifest_sayisi == 2
+    assert "üst manifestte" in (sonuc.ayrinti or "")
+
+
+def test_aktif_manifestteki_kayit_zincire_tercih_edilir(monkeypatch, tmp_path) -> None:
+    """Aktif manifest kendi başına yeterliyse zincir taranmasına gerek yok."""
+    import krizkalkan_core.synthetic.c2pa as modul
+
+    ham = _manifestler(
+        aktif={"claim_generator": "DALL·E 3", "assertions": [_ai_eylemi()]},
+        ustler={},
+    )
+    _sahte_okuyucu(monkeypatch, modul, ham)
+
+    sonuc = modul.dogrula(tmp_path / "x.jpg")
+
+    assert sonuc.durum is C2paDurum.AI_IMZALI
+    assert sonuc.zincirden is False
+
+
+def test_zincirde_ai_yoksa_cihaz_imzasi_kalir(monkeypatch, tmp_path) -> None:
+    """Zincir taraması yanlış pozitif üretmemeli."""
+    import krizkalkan_core.synthetic.c2pa as modul
+
+    ham = _manifestler(
+        aktif={"claim_generator": "Camera 2.0", "assertions": []},
+        ustler={"ust": {"claim_generator": "Lightroom", "assertions": []}},
+    )
+    _sahte_okuyucu(monkeypatch, modul, ham)
+
+    assert modul.dogrula(tmp_path / "x.jpg").durum is C2paDurum.CIHAZ_IMZALI
+
+
+# ────────────────────────── ikili işaret taraması ──────────────────────────
+
+
+def test_okunamayan_dosyada_c2pa_izi_ayirt_edilir(tmp_path) -> None:
+    """ "Hiç veri yok" ile "veri var ama okuyamadım" ayrı raporlanmalı.
+
+    Kriptografik ayrıştırma desteklenmeyen bir kapsayıcıda ya da kesilmiş bir
+    dosyada başarısız olur. Sessiz kalmak operatöre hiçbir şey söylemez;
+    "burada C2PA verisi var, bakılmalı" demek ise incelenebilir bir nottur.
+    """
+    from krizkalkan_core.synthetic.c2pa import C2paDurum, dogrula
+
+    izli = tmp_path / "izli.bin"
+    izli.write_bytes(b"\x00" * 64 + b"c2pa.actions" + b"\x00" * 64)
+
+    sonuc = dogrula(izli)
+
+    assert sonuc.durum is C2paDurum.IMZA_OKUNAMADI
+    assert sonuc.cekinmeli
+    assert "c2pa.actions" in (sonuc.ayrinti or "")
+
+
+def test_izsiz_dosyada_imza_yok_denir(tmp_path) -> None:
+    from krizkalkan_core.synthetic.c2pa import C2paDurum, dogrula
+
+    duz = tmp_path / "duz.bin"
+    duz.write_bytes(b"bu dosyada hicbir koken verisi yok")
+
+    assert dogrula(duz).durum is C2paDurum.IMZA_YOK
+
+
+def test_isaret_taramasi_skor_uretmez(tmp_path) -> None:
+    """İşaret taraması karara GİRMEZ — enjeksiyon yolu açılmamalı.
+
+    Aranan şey ham dizelerdir ve gerçek bir fotoğrafın içine birkaç bayt
+    eklenerek yazılabilir. Skor verilseydi, herkes bir başkasının gerçek
+    fotoğrafını işaretletebilirdi.
+    """
+    from krizkalkan_core.synthetic.c2pa import dogrula
+
+    tuzak = tmp_path / "tuzak.jpg"
+    tuzak.write_bytes(b"\xff\xd8" + b"trainedAlgorithmicMedia" + b"\xff\xd9")
+
+    sonuc = dogrula(tuzak)
+
+    assert sonuc.skor == 0.0
+    assert sonuc.cekinmeli

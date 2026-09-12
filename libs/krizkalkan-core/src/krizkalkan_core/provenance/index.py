@@ -103,6 +103,55 @@ class ProvenanceIndex:
         self.dhash = np.array(dhashler, dtype=np.uint64)
         self.phash = np.array(phashler, dtype=np.uint64)
         logger.info("Köken indeksi yüklendi: %d kayıt", len(self.kayitlar))
+        self.uyumsuz_dosya = self._korpus_tutarliligi(dizin)
+
+    def _korpus_tutarliligi(self, dizin: Path) -> int:
+        """İndeksin, yanındaki görüntü korpusuyla aynı görüntülere baktığını doğrular.
+
+        **Neden gerekli.** `fetch_provenance.py` dosyaları indirme sırasına göre
+        numaralandırıyor (`00000.jpg`, `00001.jpg`, …). Commons kategorilerinin
+        içeriği zamanla değiştiği için iki ayrı koşu aynı adı **başka bir
+        görüntüye** verebiliyor. İndeks ile görüntüler ayrı taşındığında
+        (ağırlıklar bir kanaldan, veri başka kanaldan) bu sessiz bir bozulma
+        üretir: sistem çökmez, yalnızca yanlış cevap verir.
+
+        Yaşandı: iki makine arasında ortak 514 dosya adının %43,8'i farklı
+        görüntüye işaret ediyordu ve temiz Recall@1 0,9950 yerine 0,5333 ölçüldü.
+
+        Karşılaştırma `kaynak_url` üzerinden yapılır: aynı ad, aynı kaynak mı?
+        """
+        kayit_dosyasi = dizin.parent.parent / "data" / "external" / "provenance" / "kayitlar.jsonl"
+        # Yol tahmini tutmazsa sessizce geç: bu bir doğrulama, zorunluluk değil.
+        if not kayit_dosyasi.exists():
+            return 0
+
+        try:
+            korpus = {}
+            for satir in kayit_dosyasi.read_text(encoding="utf-8").splitlines():
+                if satir:
+                    kayit = json.loads(satir)
+                    korpus[kayit["dosya"]] = kayit.get("kaynak_url")
+        except (OSError, json.JSONDecodeError, KeyError):
+            return 0
+
+        ortak = uyumsuz = 0
+        for kayit in self.kayitlar:
+            if (kaynak := korpus.get(kayit.dosya)) is None:
+                continue
+            ortak += 1
+            if kayit.kaynak_url and kaynak != kayit.kaynak_url:
+                uyumsuz += 1
+
+        if ortak and uyumsuz / ortak > 0.01:
+            logger.error(
+                "KÖKEN İNDEKSİ KORPUSLA UYUMSUZ: ortak %d kaydın %d'i (%.1f%%) başka bir "
+                "görüntüye işaret ediyor. İndeks ile görüntüler AYNI koşudan gelmeli; "
+                "aksi hâlde M1 ölçümleri sessizce yanlış çıkar.",
+                ortak,
+                uyumsuz,
+                100 * uyumsuz / ortak,
+            )
+        return uyumsuz
 
     def __len__(self) -> int:
         return len(self.kayitlar)

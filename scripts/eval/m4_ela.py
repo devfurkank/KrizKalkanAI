@@ -162,7 +162,7 @@ def olc_negatif_afet(sinir: int) -> dict:
     sayim: Counter[str] = Counter()
     sapmalar: list[float] = []
 
-    for sira, kayit in enumerate(kayitlar[:sinir], 1):
+    for sira, kayit in enumerate(kayitlar[: sinir or len(kayitlar)], 1):
         yol = AFET_KORPUSU / "goruntuler" / kayit["dosya"]
         if not yol.exists():
             continue
@@ -422,7 +422,7 @@ def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--pozitif", type=int, default=200)
     a.add_argument("--kontrol", type=int, default=200)
-    a.add_argument("--afet-sinir", type=int, default=689)
+    a.add_argument("--afet-sinir", type=int, default=0, help="0 = korpusun tamamı")
     a.add_argument("--tohum", type=int, default=20260911)
     args = a.parse_args()
 

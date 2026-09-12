@@ -80,6 +80,19 @@ META_COZUCU = {"sahne_uyusmazligi": _sahne_uyusmazligi}
 AZAMI_NOKTA = 12
 
 
+def _medya_yolu(medya: str | None) -> str | None:
+    """Kümedeki göreli medya yolunu bu makinedeki mutlak yola çevirir.
+
+    Eski kümeler mutlak yol taşıyor olabilir; onlar olduğu gibi geçirilir ve
+    dosya yoksa boru hattı zaten medyasız davranır. Yeni kümeler depo köküne
+    göreli yazılıyor ve makineden makineye taşınabiliyor.
+    """
+    if not medya:
+        return None
+    yol = Path(medya)
+    return str(yol if yol.is_absolute() else REPO_ROOT / yol)
+
+
 def _git_commit() -> str:
     try:
         return subprocess.run(
@@ -102,7 +115,7 @@ def vakalari_calistir(vakalar: list[dict]) -> list[dict]:
         analiz = hat.analyse(
             body=vaka["metin"],
             media_kind=vaka["medya_turu"],
-            media_fingerprint=vaka.get("medya"),
+            media_fingerprint=_medya_yolu(vaka.get("medya")),
         )
         sonuclar.append(
             {
@@ -244,9 +257,42 @@ def koken_kalibrasyonu(tohum: int) -> dict | None:
         return None
 
     indeks = ProvenanceIndex(indeks_dizini)
+
+    # İndeks korpusla uyumsuzsa kalibrasyon ÜRETİLMEZ.
+    #
+    # Yaşandı: uyumsuz bir korpusta koşturulduğunda isotonic, "benzerlik 1,0 →
+    # doğru olma olasılığı 0,54" öğrendi ve bu değer üretime yazıldı. Füzyonun
+    # yanlış bağlam eşiği 0,60 olduğu için demo senaryoları sessizce TEMİZ
+    # dönmeye başladı. Kalibrasyon doğru öğrenilmişti; veri bozuktu.
+    #
+    # Bozuk veriden öğrenilmiş bir kalibrasyon, kalibrasyonsuz sistemden
+    # kötüdür: elle yazılmış yedek noktalar hiç değilse makul davranıyor.
+    if getattr(indeks, "uyumsuz_dosya", 0) > 0:
+        print(
+            f"  🔴 köken kalibrasyonu ATLANDI: indeks korpusla uyumsuz "
+            f"({indeks.uyumsuz_dosya} kayıt başka görüntüye işaret ediyor). "
+            "İndeks ile görüntüler aynı koşudan gelmeli."
+        )
+        return None
+
     rastgele = np.random.default_rng(tohum)
 
-    dosyalar = sorted({k.dosya for k in indeks.kayitlar})
+    # İndeks, korpusta artık bulunmayan dosyalara atıf yapabilir: indeks ile
+    # görüntüler ayrı taşınıyor ve `fetch_provenance.py` farklı makinelerde
+    # farklı sayıda görüntü toplayabiliyor (Commons kategorileri değişiyor).
+    # Eksik dosyada çökmek yerine atlanır, ama sessizce değil: kaç kayıt
+    # düştüğü basılır, çünkü ölçümün n değeri bundan etkilenir.
+    tumu = sorted({k.dosya for k in indeks.kayitlar})
+    dosyalar = [d for d in tumu if (goruntuler / d).exists()]
+    if (eksik := len(tumu) - len(dosyalar)) > 0:
+        print(
+            f"  ⚠ indeksteki {eksik}/{len(tumu)} görüntü korpusta yok, atlandı "
+            "(indeks ile görüntüler ayrı taşınıyor)"
+        )
+    if not dosyalar:
+        print("  köken kalibrasyonu atlandı: indeksteki hiçbir görüntü korpusta yok")
+        return None
+
     ornekler = list(rastgele.choice(dosyalar, size=min(120, len(dosyalar)), replace=False))
 
     ham: list[float] = []

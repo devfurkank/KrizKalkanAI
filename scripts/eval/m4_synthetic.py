@@ -195,7 +195,7 @@ def afet_kume(sinir: int, tohum: int) -> list[Ornek]:
                 )
             )
     random.Random(tohum).shuffle(ornekler)
-    return ornekler[:sinir]
+    return ornekler[: sinir or len(ornekler)]
 
 
 # ────────────────────────── ölçüm ──────────────────────────
@@ -224,6 +224,21 @@ def _gecici_yaz(ornek: Ornek, dizin: Path) -> Path:
 #: ve eşik analizleri aynı skorlar üzerinde yapıldığı için yeniden çıkarım
 #: almak boşa hesaptır. Dizin `.gitignore` kapsamındadır.
 ONBELLEK = REPO_ROOT / "data" / "interim" / "m4_skorlar.json"
+
+
+def _onbellek_anahtari(ornek: Ornek) -> str:
+    """Önbellek anahtarı: dosya adı DEĞİL, içerik özeti.
+
+    Dosya adıyla anahtarlamak sessiz bir bozulma üretiyordu. Köken korpusu
+    görüntüleri indirme sırasına göre numaralandırıyor ve korpus yenilendiğinde
+    `00386.jpg` başka bir görüntüye denk gelebiliyor; önbellek o adı görüp eski
+    skoru döndürüyor ve ölçüm, hiç bakmadığı bir görüntü hakkında konuşuyor.
+
+    İçerik özeti bu sınıf hatayı tümden kapatır: bayt değişirse anahtar değişir.
+    """
+    import hashlib
+
+    return hashlib.blake2b(ornek.bayt, digest_size=16).hexdigest()
 
 
 def _onbellek_oku() -> dict[str, dict]:
@@ -258,7 +273,7 @@ def kos(
     with tempfile.TemporaryDirectory() as gecici:
         dizin = Path(gecici)
         for sira, ornek in enumerate(ornekler, 1):
-            if bolum is not None and (kayit := bolum.get(ornek.ad)) is not None:
+            if bolum is not None and (kayit := bolum.get(_onbellek_anahtari(ornek))) is not None:
                 sonuclar.append(
                     Sonuc(
                         etiket=kayit["etiket"],
@@ -287,7 +302,7 @@ def kos(
 
             sonuclar.append(sonuc)
             if bolum is not None:
-                bolum[ornek.ad] = {
+                bolum[_onbellek_anahtari(ornek)] = {
                     "etiket": sonuc.etiket,
                     "uretici": sonuc.uretici,
                     "skor": sonuc.skor,
@@ -533,7 +548,10 @@ def tur_analizi(
             toplam: dict[str, float] = defaultdict(float)
             sayi = 0
             for ornek in ornekler[:sinir]:
-                if bolum is not None and (kayit := bolum.get(ornek.ad)) is not None:
+                if (
+                    bolum is not None
+                    and (kayit := bolum.get(_onbellek_anahtari(ornek))) is not None
+                ):
                     skorlar = kayit["skorlar"]
                 else:
                     yol = _gecici_yaz(ornek, dizin)
@@ -543,7 +561,7 @@ def tur_analizi(
                         yol.unlink(missing_ok=True)
                     skorlar = None if cikti.cekindi else cikti.tur_skorlari
                     if bolum is not None:
-                        bolum[ornek.ad] = {"skorlar": skorlar}
+                        bolum[_onbellek_anahtari(ornek)] = {"skorlar": skorlar}
                 if not skorlar:
                     continue
                 dagilim[max(skorlar, key=lambda k: skorlar[k])] += 1
@@ -1006,7 +1024,7 @@ def _kart_guncelle(
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--sinir", type=int, default=1000, help="çapraz kümeden örnek sayısı")
-    a.add_argument("--afet-sinir", type=int, default=300, help="afet korpusundan örnek sayısı")
+    a.add_argument("--afet-sinir", type=int, default=0, help="0 = korpusun tamamı")
     a.add_argument(
         "--dayaniklilik-sinir", type=int, default=60, help="dönüşüm başına üretilmiş örnek"
     )

@@ -1,21 +1,21 @@
 # Sistem — Gecikme ve Verim
 
-*`scripts/eval/system_latency.py` tarafından üretildi · 09.09.2026 08:47 UTC · commit `668ac44`*
+*`scripts/eval/system_latency.py` tarafından üretildi · 12.09.2026 08:46 UTC · commit `96194aa`*
 
 | | |
 |---|---|
 | Çalışma zamanı | onnx · mps |
-| Yüklü model | 4/4 · m1_provenance, m3_text, m5_nli, m5_retriever |
+| Yüklü model | 5/6 · m1_provenance, m2_scene, m3_text, m5_nli, m5_retriever |
 | Vaka sayısı | 120 |
 
 ## Soğuk hat (önbellek kapalı)
 
 | Metrik | Ölçülen | Hedef | |
 |---|---|---|---|
-| p50 | 0.02 sn | ≤ 8 sn | ✓ |
-| p95 | 0.03 sn | ≤ 20 sn | ✓ |
-| p99 | 0.05 sn | — | |
-| Verim | 2455 içerik/dk | ≥ 400 | ✓ |
+| p50 | 0.04 sn | ≤ 8 sn | ✓ |
+| p95 | 0.08 sn | ≤ 20 sn | ✓ |
+| p99 | 0.58 sn | — | |
+| Verim | 1000 içerik/dk | ≥ 400 | ✓ |
 
 ## Sıcak hat (algısal karma önbelleği açık)
 
@@ -25,15 +25,15 @@ yüklendiğinde boru hattı baştan çalıştırılmaz.
 | Metrik | Ölçülen |
 |---|---|
 | p50 | 0.000 sn |
-| Verim | 6702350 içerik/dk |
-| Hızlanma | 19000× |
+| Verim | 6582352 içerik/dk |
+| Hızlanma | 39900× |
 
 ## İçerik türüne göre
 
 | Tür | n | p50 | p95 | Verim |
 |---|---|---|---|---|
-| yalnızca metin | 60 | 0.023 sn | 0.026 sn | 2910/dk |
-| görsel + metin | 60 | 0.018 sn | 0.022 sn | 3160/dk |
+| yalnızca metin | 60 | 0.045 sn | 0.052 sn | 1407/dk |
+| görsel + metin | 60 | 0.035 sn | 0.077 sn | 1351/dk |
 
 ## Bileşen dökümü
 
@@ -42,10 +42,10 @@ verilemez.
 
 | Bileşen | Süre |
 |---|---|
-| M3 · ONNX ileri geçiş | 14.19 ms |
-| M3 · örtme tabanlı kanıt | 66.14 ms |
-| M5 · gömme kodlama + arama | 3.25 ms |
-| M1 · görüntü karması | 2.81 ms |
+| M3 · ONNX ileri geçiş | 28.61 ms |
+| M3 · örtme tabanlı kanıt | 148.77 ms |
+| M5 · gömme kodlama + arama | 5.53 ms |
+| M1 · görüntü karması | 3.93 ms |
 
 Örtme tabanlı kanıt yalnızca yardım çağrısı olasılığı eşiği aştığında
 çalışır; tipik içerikte bu maliyet ödenmez.

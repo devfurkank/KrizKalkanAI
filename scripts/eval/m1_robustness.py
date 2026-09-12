@@ -431,7 +431,18 @@ def main() -> int:
 
     rastgele = random.Random(args.tohum)
     # Aynı görüntü birden çok görünümle indekslendiği için tekilleştir.
-    dosyalar = sorted({k.dosya for k in indeks.kayitlar})
+    # İndeks ile görüntüler ayrı taşınıyor ve `fetch_provenance.py` farklı
+    # makinelerde farklı sayıda görüntü toplayabiliyor (Commons kategorileri
+    # değişiyor). Eksik dosyada çökmek yerine atlanır — ama sessizce değil:
+    # ölçümün n değeri bundan etkileniyor.
+    tumu = sorted({k.dosya for k in indeks.kayitlar})
+    dosyalar = [d for d in tumu if (KAYNAK / d).exists()]
+    if (eksik := len(tumu) - len(dosyalar)) > 0:
+        print(f"⚠ indeksteki {eksik}/{len(tumu)} görüntü korpusta yok, atlandı")
+    if not dosyalar:
+        print("🔴 indeksteki hiçbir görüntü korpusta yok")
+        return 1
+
     ornekler = rastgele.sample(dosyalar, min(args.ornek, len(dosyalar)))
 
     # İndeks dışı sorgular, indeks kurulurken bilinçli olarak AYRILAN kümedir.

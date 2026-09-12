@@ -1,6 +1,6 @@
 # M4 — Üretici üstverisi
 
-*Üretim: 2026-09-11 19:11 UTC · commit `2d8180d`*
+*Üretim: 2026-09-12 08:48 UTC · commit `96194aa`*
 
 Üretici araçlar dosyaya kendi parametrelerini yazar: Stable Diffusion ve
 ComfyUI PNG `tEXt` bloklarına `parameters`, `prompt`, `workflow` alanlarını
@@ -73,8 +73,8 @@ Wikimedia Commons Türkiye afet korpusu. **Tamamı gerçektir.**
 |---|---|---|
 | Üretici imzası (yanlış pozitif) | 0 | **0.00%** |
 | Kamera telemetrisi | 0 | 0.0% |
-| Üstveri yok (çekinme) | 689 | 100.0% |
-| Toplam | 689 | |
+| Üstveri yok (çekinme) | 786 | 100.0% |
+| Toplam | 786 | |
 
 > Çekinme oranının yüksekliği beklenen sonuçtur: Wikimedia küçük boy
 > görüntüleri yeniden kodlarken üstveriyi siler, sosyal platformlar da

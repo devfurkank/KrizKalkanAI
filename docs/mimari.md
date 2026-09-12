@@ -83,7 +83,7 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M2 | Sahne–iddia uyumu | çok dilli CLIP, int8 ONNX | `m2.md` |
 | M2 | AV senkron, konuşmacı–yüz | ⏳ kurulmadı | — |
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
-| M4 | C2PA köken üstverisi | kriptografik doğrulama | testlerle |
+| M4 | C2PA köken üstverisi | kriptografik doğrulama · **manifest zinciri taranıyor** | testlerle |
 | M4 | Üretici üstverisi | ✅ **kural tabanlı · devrede** | `m4-ustveri.md` |
 | M4 | Sentetik görüntü | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4.md` |
 | M4 | Hata seviyesi analizi | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4-ela.md` |
@@ -295,5 +295,20 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
   kullanıyor. Provokatif çerçeveleme sınıfının düşük başarımının sebebi budur.
 - **Video hattı** ffmpeg gerektiriyor ve gecikme ölçümü yalnızca görsel/metin
   içeriğini kapsıyor.
+- **Ölçümler çalışma zamanı sürümüne duyarlı.** İki makinede aynı ağırlıklar,
+  aynı veri ve aynı tohumla koşulduğunda ONNX kullanmayan M1 birebir aynı
+  sayıları verdi (Recall@1 0,9950 · zararlı eşleşme 0,0100), ONNX kullanan
+  modüller ise marjinal kararlarda kaydı: M5 Recall@1 0,8929 → 0,8571,
+  M8 zor küme ARI 0,5742 → 0,4290. Recall@5 (0,964) ve M8 kolay küme (1,0000)
+  değişmedi — yani sıralama değil, yalnızca sınırdaki kararlar oynuyor.
+  `pyproject.toml` `onnxruntime>=1.20` diyor ve üst sınır yok. Sunumda
+  raporlanan sayılar, demoyu çalıştıracak makinede yeniden üretilmeli.
+- **Taşınabilirlik tuzağı: konumsal dosya adları.** `fetch_provenance.py`
+  görüntüleri indirme sırasına göre numaralandırıyor; Commons kategorileri
+  değiştiği için aynı ad iki koşuda farklı görüntüye denk gelebiliyor. Köken
+  indeksi ve uçtan uca küme bu adlara bağlı olduğundan, veri ile ağırlık ayrı
+  kanallardan taşındığında ölçümler sessizce bozuluyor. `ProvenanceIndex` artık
+  bunu yüklenirken tespit edip hata basıyor; kalıcı çözüm, adların içerikten
+  türetilmesi olurdu.
 - **Türkçe etiketli yardım çağrısı kümesi** yok. Kural 0'ın Türkçe duyarlılığı
   ölçülmemiş durumda; bu, sistemin en kritik ölçülmemiş büyüklüğü.

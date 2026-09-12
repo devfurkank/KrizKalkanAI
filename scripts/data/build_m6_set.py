@@ -86,6 +86,17 @@ def _tutulan_kayitlar() -> list[dict]:
     ]
 
 
+def _goreli(yol: Path) -> str:
+    """Medya yolunu depo köküne göreli yazar.
+
+    Mutlak yol yazmak kümeyi taşınamaz kılıyor: dosya başka bir makinede
+    açıldığında bütün görüntüler kaybolur ve vakalar sessizce metin-only
+    analize düşer. Yaşandı — 408 vakanın 240'ı bu yüzden medyasız koştu ve
+    makro-F1 0,5417 yerine 0,4058 ölçüldü. Çökme yok, yalnızca yanlış sayı.
+    """
+    return str(yol.relative_to(REPO_ROOT))
+
+
 def _sehir(konum: str) -> str:
     """Birleşik konumdan tek bir şehir adı çıkarır."""
     return konum.split("/")[0].strip()
@@ -122,7 +133,7 @@ def main() -> int:
                     "id": f"m6-yb-{len(vakalar):04d}",
                     "sinif": Verdict.YANLIS_BAGLAM.value,
                     "metin": rastgele.choice(SABLONLAR).format(sehir=uzak),
-                    "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                    "medya": _goreli(GORUNTU_DIZINI / kayit["dosya"]),
                     "medya_turu": "image",
                     "kaynak": "M1 korpusu · şablon metin",
                     "gercek_konum": kayit["konum"],
@@ -137,7 +148,7 @@ def main() -> int:
                     "id": f"m6-tm-{len(vakalar):04d}",
                     "sinif": Verdict.TEMIZ.value,
                     "metin": rastgele.choice(SABLONLAR).format(sehir=sehir),
-                    "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                    "medya": _goreli(GORUNTU_DIZINI / kayit["dosya"]),
                     "medya_turu": "image",
                     "kaynak": "M1 korpusu · şablon metin · doğru bağlam",
                     "gercek_konum": kayit["konum"],
@@ -160,7 +171,7 @@ def main() -> int:
                 "id": f"m6-su-{len(vakalar):04d}",
                 "sinif": Verdict.YANLIS_BAGLAM.value,
                 "metin": TUR_SABLONLARI[farkli],
-                "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                "medya": _goreli(GORUNTU_DIZINI / kayit["dosya"]),
                 "medya_turu": "image",
                 "kaynak": "indeks dışı görüntü · sahne uyuşmazlığı",
                 "gercek_tur": tur,
@@ -174,7 +185,7 @@ def main() -> int:
                 "id": f"m6-su-tm-{len(vakalar):04d}",
                 "sinif": Verdict.TEMIZ.value,
                 "metin": TUR_SABLONLARI[tur],
-                "medya": str(GORUNTU_DIZINI / kayit["dosya"]),
+                "medya": _goreli(GORUNTU_DIZINI / kayit["dosya"]),
                 "medya_turu": "image",
                 "kaynak": "indeks dışı görüntü · sahne uyumlu",
                 "gercek_tur": tur,
