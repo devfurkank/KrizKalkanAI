@@ -5,8 +5,8 @@
 | Model adı | `m2_scene` |
 | Temel model | openai/clip-vit-base-patch32 + clip-ViT-B-32-multilingual-v1 (int8 ONNX) |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-09T09:16:25+00:00 |
-| Git commit | `dcb32a8` |
+| Oluşturulma | 2026-09-12T11:21:18+00:00 |
+| Git commit | `eab1f09` |
 | Lisans | Model: MIT (CLIP) · Apache-2.0 (çok dilli kule) |
 
 ## Amaç ve kapsam
@@ -27,8 +27,8 @@ Eğitim yok. İki kule int8 ONNX'e aktarıldı; karşıt istemler inşa sırası
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| esli_dogruluk | 0.795 | M1 korpusu · doğru tür vs yanlış tür | 600 | — |
-| ilk_sirada_orani | 0.725 | M1 korpusu | 200 | — |
+| esli_dogruluk | 0.8033 | M1 korpusu · doğru tür vs yanlış tür | 600 | — |
+| ilk_sirada_orani | 0.735 | M1 korpusu | 200 | — |
 
 ## Bilinen sınırlar
 

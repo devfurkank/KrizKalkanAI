@@ -1,6 +1,6 @@
 # M4 — Hata seviyesi analizi (yerel oynama)
 
-*Üretim: 2026-09-11 19:21 UTC · commit `2d8180d` · aykırılık katı 4.0*
+*Üretim: 2026-09-12 11:24 UTC · commit `eab1f09` · aykırılık katı 4.0*
 
 Yöntem, yeniden kaydetmede bölgelerin farklı bozulmasına dayanır: bir
 bölge sonradan yapıştırılmışsa sıkıştırma geçmişi çevresinden ayrışır.
@@ -45,10 +45,10 @@ oynanmış sanacağıdır.
 
 | Sonuç | Adet | Oran |
 |---|---|---|
-| **Yerel aykırılık (yanlış pozitif)** | 203 | **29.46%** |
-| Aykırılık yok | 460 | 66.8% |
-| Uygulanamaz (çekinme) | 26 | 3.8% |
-| Toplam | 689 | |
+| **Yerel aykırılık (yanlış pozitif)** | 231 | **29.39%** |
+| Aykırılık yok | 523 | 66.5% |
+| Uygulanamaz (çekinme) | 32 | 4.1% |
+| Toplam | 786 | |
 
 ## 4. Ayrım gücü — belirleyici ölçüm
 
@@ -82,7 +82,7 @@ Kabul için aranan üç koşul ve ölçülen değerler:
 |---|---|---|---|
 | **Ayrım gücü (AUC)** | ≥ 0,75 | **0.5805** | ✗ |
 | Yakalama (üretilmiş yapıştırma) | bilgi | 60.4% | |
-| Yanlış pozitif (afet, gerçek) | ≤ 5% | 29.46% | ✗ |
+| Yanlış pozitif (afet, gerçek) | ≤ 5% | 29.39% | ✗ |
 | Yanlış pozitif (kontrol, yeniden kayıt) | ≤ 10% | 46.0% | ✗ |
 
 ## 6. Bilinen sınırlar

@@ -39,12 +39,12 @@ XLM-R base üzerine 3 sınıflı dizi-çifti sınıflandırma başlığı; erken
 |---|---|---|---|---|
 | dogruluk | 0.8181 | SNLI-TR doğrulama | 9842 | — |
 | makro_f1 | 0.8178 | SNLI-TR doğrulama | 9842 | — |
-| alan_ici_dogru_eslesme | 0.0357 | kriz iddiası → DMM kaydı | 28 | SNLI doğruluğu bu sayıyı TEMSİL ETMEZ |
+| alan_ici_dogru_eslesme | 0.0714 | kriz iddiası → DMM kaydı | 28 | SNLI doğruluğu bu sayıyı TEMSİL ETMEZ |
 | alan_ici_zararli_eslesme | 0.1786 | kriz iddiası → DMM kaydı | 28 | yanlış kayıt gösterilerek 'resmî kaynak seni yalanlıyor' denmesi |
 
 ## Bilinen sınırlar
 
-- 🔴 MODEL DEVREDE DEĞİLDİR. Kriz alanında ölçüldü ve reddedildi: 28 sorguda 1 doğru, 5 ZARARLI eşleşme üretti. Aynı kümede sözlük yolu daha iyi sonuç veriyor.
+- 🔴 MODEL DEVREDE DEĞİLDİR. Kriz alanında ölçüldü ve reddedildi: 28 sorguda 2 doğru, 5 ZARARLI eşleşme üretti. Aynı kümede sözlük yolu daha iyi sonuç veriyor.
 - Sebep görev uyumsuzluğu, eğitim başarısızlığı değil: SNLI'ın "öncül varsayımı ima ediyor mu?" sorusu, "bu iki metin aynı iddiayı mı öne sürüyor?" sorusu değildir. Öncül/varsayım yönü ters çevrilerek de denendi; iki yönde de başarısız.
 - SNLI-TR makine çevirisiyle üretilmiştir; kısa, genel cümlelerden oluşur. Kriz iddiaları ve DMM kayıtları uzun ve kurumsal dildedir.
 - Gerçek bir iddia eşleştirme kümesiyle eğitilmiş model geldiğinde karar ölçümle yeniden ele alınmalıdır; kod yolu (`engine._cikarim_yolu`) ve testleri korunmaktadır.

@@ -19,17 +19,26 @@ dependencies = [
 # Çıkarım katmanı: demo makinesinde (CPU) kurulur.
 # Ağır eğitim bağımlılıkları bilinçli olarak ayrıdır; çekirdek kütüphane
 # ML paketleri olmadan da içe aktarılabilir kalmalıdır.
+#
+# SÜRÜMLER SABİTTİR ve bu bilinçlidir. Alt sınırla bırakıldığında iki makine
+# farklı sürüm kurup FARKLI SAYI üretiyordu: aynı ağırlıklar, aynı veri ve aynı
+# tohumla M5 Recall@1 0,8929 yerine 0,8571, M8 zor küme ARI 0,5742 yerine
+# 0,4290 ölçüldü. ONNX kullanmayan M1 ise birebir aynı kaldı — fark int8
+# çıkarımın sınırdaki kararlarından geliyor.
+#
+# Raporlanan her metrik bu sürümlerle üretilmiştir. Değiştirilirse ölçümlerin
+# tamamı yeniden koşturulmalı ve raporlar birlikte güncellenmelidir.
 models = [
-    "onnxruntime>=1.20.0",
-    "numpy>=2.1.0",
-    "faiss-cpu>=1.9.0",
-    "pillow>=11.0.0",
-    "imagehash>=4.3.2",
-    "scikit-learn>=1.6.0",
-    "lightgbm>=4.5.0",
-    "tokenizers>=0.21.0",
+    "onnxruntime==1.30.0",
+    "numpy==2.5.3",
+    "faiss-cpu==1.15.0",
+    "pillow==12.3.0",
+    "imagehash==4.3.2",
+    "scikit-learn==1.9.1",
+    "lightgbm==4.7.0",
+    "tokenizers==0.23.2",
     # C2PA / Content Credentials doğrulaması — M4'ün tek kriptografik sinyali.
-    "c2pa-python>=0.37.0",
+    "c2pa-python==0.37.10",
 ]
 
 # Yalnızca Kaggle/eğitim ortamında kurulur; yerel demoya girmez.

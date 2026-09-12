@@ -5,8 +5,8 @@
 | Model adı | `m8_radar` |
 | Temel model | intfloat/multilingual-e5-base (M5 kodlayıcısı) + HDBSCAN |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-09T09:34:04+00:00 |
-| Git commit | `4d21d8a` |
+| Oluşturulma | 2026-09-12T11:21:59+00:00 |
+| Git commit | `eab1f09` |
 | Lisans | Model: MIT (e5) · BSD-3 (scikit-learn) |
 
 ## Amaç ve kapsam
@@ -34,13 +34,13 @@ Eğitim yok. Cümle gömmesi M5'in kodlayıcısıyla üretilir (ek ağırlık in
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| ari_zor | 0.5742 | elle yazılmış yeniden ifadeler | 56 | — |
-| birlikte_zor | 0.5714 | elle yazılmış yeniden ifadeler | 56 | — |
+| ari_zor | 0.429 | elle yazılmış yeniden ifadeler | 56 | — |
+| birlikte_zor | 0.5357 | elle yazılmış yeniden ifadeler | 56 | — |
 | ari_kolay | 1 | gürültü varyantları | 120 | — |
 
 ## Bilinen sınırlar
 
-- Zor kümede ARI 0.5742: aynı iddianın elle yeniden yazılmış hâllerinin yaklaşık yarısı ayrı kümelerde kalıyor. Panel bu durumda tek bir yalanı iki satır olarak gösterir — birleştirmeyi kaçırmak, yanlış birleştirmekten daha az zararlıdır ve eşik bu yönde seçilmiştir.
+- Zor kümede ARI 0.4290: aynı iddianın elle yeniden yazılmış hâllerinin yaklaşık yarısı ayrı kümelerde kalıyor. Panel bu durumda tek bir yalanı iki satır olarak gösterir — birleştirmeyi kaçırmak, yanlış birleştirmekten daha az zararlıdır ve eşik bu yönde seçilmiştir.
 - Kümeleme denetimsizdir ve kriz alanına uyarlanmamıştır; gömme modeli genel amaçlıdır.
 - Değerlendirme kümesi küçüktür (n=56 ve 120).
 

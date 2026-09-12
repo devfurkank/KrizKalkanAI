@@ -253,6 +253,15 @@ Ağırlıklar depoda tutulmaz. Eğitim Kaggle defterleriyle yapılır
 (`notebooks/`), çıktı `models/` altına indirilir. Kart olmadan ağırlık
 yüklenmez.
 
+**Çıkarım yığınının sürümleri sabittir** (`libs/krizkalkan-core/pyproject.toml`
+· `models` grubu). Alt sınırla bırakıldığında iki makine farklı sürüm kurup
+farklı sayı üretiyordu: aynı ağırlık, aynı veri ve aynı tohumla M5 Recall@1
+0,8929 yerine 0,8571, M8 zor küme ARI 0,5742 yerine 0,4290 ölçüldü. ONNX
+kullanmayan M1 ise birebir aynı kaldı (0,9950 · 0,6737 · 0,0100) — fark int8
+çıkarımın sınırdaki kararlarından geliyor. Bu belgedeki ve
+`docs/metrikler/` altındaki bütün sayılar sabitlenmiş sürümlerle üretildi;
+sürüm değişirse ölçümlerin tamamı yeniden koşturulmalıdır.
+
 ### Ölçümü tekrarlamak
 
 ```bash
@@ -295,14 +304,11 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
   kullanıyor. Provokatif çerçeveleme sınıfının düşük başarımının sebebi budur.
 - **Video hattı** ffmpeg gerektiriyor ve gecikme ölçümü yalnızca görsel/metin
   içeriğini kapsıyor.
-- **Ölçümler çalışma zamanı sürümüne duyarlı.** İki makinede aynı ağırlıklar,
-  aynı veri ve aynı tohumla koşulduğunda ONNX kullanmayan M1 birebir aynı
-  sayıları verdi (Recall@1 0,9950 · zararlı eşleşme 0,0100), ONNX kullanan
-  modüller ise marjinal kararlarda kaydı: M5 Recall@1 0,8929 → 0,8571,
-  M8 zor küme ARI 0,5742 → 0,4290. Recall@5 (0,964) ve M8 kolay küme (1,0000)
-  değişmedi — yani sıralama değil, yalnızca sınırdaki kararlar oynuyor.
-  `pyproject.toml` `onnxruntime>=1.20` diyor ve üst sınır yok. Sunumda
-  raporlanan sayılar, demoyu çalıştıracak makinede yeniden üretilmeli.
+- **M8 zor küme ARI'si küçük örneklemde kırılgan.** n=56, ~28 gerçek grup ve
+  `min_cluster_size=2` ile tek bir gömmenin kıl payı kayması kümeyi bölüp
+  ARI'yi büyük oynatıyor. Ölçülen 0,4290 değeri bu kırılganlıkla birlikte
+  okunmalı; kolay kümede (n=120) aynı yöntem 1,0000 veriyor. Kümenin
+  büyütülmesi bu sayıyı anlamlı kılacak tek yoldur.
 - **Taşınabilirlik tuzağı: konumsal dosya adları.** `fetch_provenance.py`
   görüntüleri indirme sırasına göre numaralandırıyor; Commons kategorileri
   değiştiği için aynı ad iki koşuda farklı görüntüye denk gelebiliyor. Köken

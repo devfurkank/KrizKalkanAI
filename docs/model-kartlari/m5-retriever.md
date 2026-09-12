@@ -5,8 +5,8 @@
 | Model adı | `m5_retriever` |
 | Temel model | intfloat/multilingual-e5-base (int8 ONNX) |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-09T09:34:54+00:00 |
-| Git commit | `4d21d8a` |
+| Oluşturulma | 2026-09-12T11:21:48+00:00 |
+| Git commit | `eab1f09` |
 | Lisans | Model: MIT (e5) · Veri: CC BY 4.0 (DMM) |
 
 ## Amaç ve kapsam
@@ -36,9 +36,9 @@ Kullanıcı metninden çıkarılan iddiaya en yakın resmî kayıtları bulur. K
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| recall1 | 0.8929 | elle yazılmış yeniden ifadeler | 28 | — |
+| recall1 | 0.8571 | elle yazılmış yeniden ifadeler | 28 | — |
 | recall5 | 0.9643 | elle yazılmış yeniden ifadeler | 28 | — |
-| mrr | 0.9286 | elle yazılmış yeniden ifadeler | 28 | — |
+| mrr | 0.9107 | elle yazılmış yeniden ifadeler | 28 | — |
 
 ## Bilinen sınırlar
 

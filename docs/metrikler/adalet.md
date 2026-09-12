@@ -1,6 +1,6 @@
 # Adalet Denetimi — Alt Grup Yanlış Pozitif Analizi
 
-*`scripts/eval/m3_fairness.py` tarafından üretildi · 09.09.2026 09:00 UTC · commit `f63c0f2`*
+*`scripts/eval/m3_fairness.py` tarafından üretildi · 12.09.2026 11:22 UTC · commit `eab1f09`*
 
 Adalet denetimi kümesi (rapor 6.2). Aynı ZARARSIZ içerik farklı ağız, kayıt ve dillerde yazılmıştır. Sistem hiçbirini etiketlememelidir; alt gruplar arasındaki yanlış pozitif farkı, modelin dilsel önyargısını gösterir. Küme iki eksenlidir: zararsız içerikte YANLIŞ POZİTİF farkı (ayrımcılık) ve etiketlenmesi GEREKEN içerikte TESPİT farkı (eşitsiz koruma). Yalnızca birincisini ölçmek yanıltıcıdır: hiçbir şeyi etiketlemeyen bir sistem de kusursuz adil görünür.
 

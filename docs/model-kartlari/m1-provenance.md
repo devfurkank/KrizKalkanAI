@@ -5,8 +5,8 @@
 | Model adı | `m1_provenance` |
 | Temel model | dHash + pHash (8×8, 64 bit) |
 | Sürüm | 0.1.0 |
-| Oluşturulma | 2026-09-08T16:49:07+00:00 |
-| Git commit | `77df8a4` |
+| Oluşturulma | 2026-09-12T11:21:04+00:00 |
+| Git commit | `eab1f09` |
 | Lisans | Veri: Wikimedia Commons (kayıt başına lisans indekste tutulur) |
 
 ## Amaç ve kapsam
