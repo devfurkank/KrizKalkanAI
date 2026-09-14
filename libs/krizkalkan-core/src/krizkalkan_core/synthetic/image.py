@@ -38,7 +38,7 @@ from krizkalkan_core.models import ModelSpec, registry
 logger = logging.getLogger(__name__)
 
 MODEL_ADI = "m4_synthetic"
-GEREKLI_DOSYALAR = ("uretim.onnx", "tur.onnx", "onisleme.json")
+GEREKLI_DOSYALAR = ("uretim.onnx", "onisleme.json")
 
 #: Üç sınıflı detektörün etiketleri — taksonomiye eşlenmiş hâlleri.
 #:
@@ -60,10 +60,20 @@ ASGARI_KENAR = 224
 #: durumda "iz bulamadım" demek "temiz" demek DEĞİLDİR.
 ASGARI_BAYT_PIKSEL = 0.05
 
-#: İki detektör bu güvenin üzerinde ZIT yönde karar verirse modül çekinir.
-#: Eğitim kümeleri ayrık olduğundan böyle bir çelişki, ikisinden birinin
-#: dağılım dışında kaldığının işaretidir.
-UYUSMAZLIK_ESIGI = 0.70
+#: ⛔ Çelişki tabanlı çekinme KALDIRILDI.
+#:
+#: Kural, iki YETKİN detektör varsayımıyla yazılmıştı: eğitim kümeleri ayrık
+#: olduğu için çelişkileri bilgi taşır deniyordu. Ölçüm bu varsayımı çürüttü —
+#: üç sınıflı detektör tamamı gerçek olan kümelerde de "sentetik" diyor ve
+#: "gerçek" sınıfına ortalama 0,001–0,004 olasılık veriyor
+#: (docs/metrikler/m4.md · bölüm 4).
+#:
+#: Sonuç: ikili detektör gerçek bir fotoğrafa doğru şekilde "gerçek" dediğinde
+#: kural bunu çelişki sayıp susuyordu. Afet korpusunda çekinme oranı %96,18'e
+#: çıktı ve modül fiilen hiçbir karar veremedi.
+#:
+#: Yetkinliği ölçülmemiş bir ikinci görüşü veto hakkıyla donatmak, tek başına
+#: doğru çalışan bir detektörü susturuyor.
 
 
 @dataclass(slots=True)
@@ -128,8 +138,15 @@ class SentetikGoruntuModeli:
         self.uretim = ort.InferenceSession(
             str(dizin / "uretim.onnx"), sess_options=secenek, providers=["CPUExecutionProvider"]
         )
-        self.tur = ort.InferenceSession(
-            str(dizin / "tur.onnx"), sess_options=secenek, providers=["CPUExecutionProvider"]
+        # Üç sınıflı detektör İSTEĞE BAĞLIDIR: ölçüldü ve karara katılamayacağı
+        # görüldü (yukarıdaki nota bakınız). Yoksa modül ikili detektörle çalışır.
+        tur_yolu = dizin / "tur.onnx"
+        self.tur = (
+            ort.InferenceSession(
+                str(tur_yolu), sess_options=secenek, providers=["CPUExecutionProvider"]
+            )
+            if tur_yolu.exists()
+            else None
         )
         self._onisleme = json.loads((dizin / "onisleme.json").read_text(encoding="utf-8"))
 
@@ -199,38 +216,22 @@ class SentetikGoruntuModeli:
             )
 
         (uretim_logit,) = self.uretim.run(None, {"pixel_values": self._hazirla(goruntu, "uretim")})
-        (tur_logit,) = self.tur.run(None, {"pixel_values": self._hazirla(goruntu, "tur")})
-
         # İkili detektörün etiket sırası: 0 = üretilmiş, 1 = gerçek.
         uretim_olasilik = self._softmax(np, uretim_logit)[0]
         uretim_skoru = round(float(uretim_olasilik[0]), 4)
 
+        # Üç sınıflı detektör yoksa karar ikili detektörden gelir; tür ayrımı
+        # yapılamaz ve bu "bilinmiyor" olarak taşınır, uydurulmaz.
+        if self.tur is None:
+            return GoruntuSonucu(uretim_skoru=uretim_skoru, tur="bilinmiyor", **olcum)
+
+        (tur_logit,) = self.tur.run(None, {"pixel_values": self._hazirla(goruntu, "tur")})
         tur_olasilik = self._softmax(np, tur_logit)[0]
         tur_skorlari = {
             etiket: round(float(deger), 4)
             for etiket, deger in zip(TUR_ETIKETLERI, tur_olasilik, strict=True)
         }
         tur = max(tur_skorlari, key=lambda k: tur_skorlari[k])
-
-        # Çelişki kontrolü: iki detektör ayrı korpuslarda eğitildiği için
-        # güvenli bir zıtlık, ikisinden birinin dağılım dışında olduğunu söyler.
-        gercek_skoru = tur_skorlari["gerçek"]
-        uyusmazlik = (uretim_skoru >= UYUSMAZLIK_ESIGI and gercek_skoru >= UYUSMAZLIK_ESIGI) or (
-            1.0 - uretim_skoru >= UYUSMAZLIK_ESIGI and 1.0 - gercek_skoru >= UYUSMAZLIK_ESIGI
-        )
-
-        if uyusmazlik:
-            return GoruntuSonucu(
-                uretim_skoru=uretim_skoru,
-                tur=tur,
-                tur_skorlari=tur_skorlari,
-                cekinme_nedeni=(
-                    "iki bağımsız detektör zıt yönde karar verdi "
-                    f"(üretim {uretim_skoru:.2f} · gerçek {gercek_skoru:.2f})"
-                ),
-                uyusmazlik=True,
-                **olcum,
-            )
 
         return GoruntuSonucu(
             uretim_skoru=uretim_skoru,

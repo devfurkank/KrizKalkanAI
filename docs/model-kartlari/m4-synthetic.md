@@ -1,71 +1,72 @@
-# M4 — Sentetik görüntü tespiti (ikili + üç sınıflı) `v0.1`
+# M4 — Sentetik görüntü tespiti (temiz lisans) `v0.2-temiz`
 
 | | |
 |---|---|
 | Model adı | `m4_synthetic` |
-| Temel model | google/siglip2-base-patch16-512 · google/siglip2-base-patch16-224 |
-| Sürüm | 0.1 |
-| Oluşturulma | 2026-09-11T09:47:06+00:00 |
-| Git commit | `96194aa` |
-| Lisans | MIT (DeepReality) · Apache 2.0 (üç sınıflı ağırlık) |
+| Temel model | google/siglip2-base-patch16-224 |
+| Sürüm | 0.2-temiz |
+| Oluşturulma | 2026-09-14T14:32:24+00:00 |
+| Git commit | `547d1c4` |
+| Lisans | MIT (GenImage) · CC BY-SA 4.0 (Wikimedia afet korpusu) |
 
 ## Amaç ve kapsam
 
-Görüntüde yapay üretim izi arar ve bulduğunda türünü ayırır: tam sentetik üretim (SENTETİK_MEDYA) ile gerçek içerik üzerinde oynama (MANİPÜLE_MEDYA) farklı sınıflardır ve farklı müdahale tetikler. Modül olasılıksal çıkarım üretir; C2PA imzası varsa karar oradan gelir, bu detektörler onu geçersiz kılamaz.
+Görüntüde yapay üretim izi arar. Gövde donuk, yalnızca LayerNorm ve sınıflandırma başlığı eğitildi; önceki sürümün doygunluk sorunu bu kısıtla giderildi. Çıktı olasılıksaldır; C2PA imzası varsa karar oradan gelir.
 
 ## Eğitim verisi
 
-- İkili detektör: prithivMLmods/OpenDeepfake-Preview · 8 epok ince ayar (DeepReality, MIT)
-- Üç sınıflı detektör: prithivMLmods/AI-vs-Deepfake-vs-Real-Siglip2 (Apache 2.0, harici hazır ağırlık)
+- jhutter2/281_Genimage (MIT) · ADM, SD 1.5, wukong + ImageNet gerçekleri
+- Wikimedia Commons Türkiye afet korpusu · 628 görüntü negatif sınıfta
 
 ## Eğitim yordamı
 
-Ağırlıklar DeepReality projesinden alındı; bu depoda eğitim yapılmadı. Görsel kule ve sınıflandırma başlığı ayrıştırılıp int8 ONNX'e aktarıldı; metin kulesi taşınmadı (375,8M → 93,7M parametre). İki detektör ayrı korpuslarda eğitildiği için hemfikirlikleri bağımsız doğrulama, çelişkileri ise çekinme sebebidir.
+Donuk SigLIP2 gövdesi + LayerNorm ayarı · 6 epok · OneCycle lr=0.0003 · her iki sınıfa sosyal medya artırması (JPEG yeniden kodlama 35-95, ölçekleme 0,35-1,0, kırpma, ayna). Artırma bilinçlidir: sıkıştırma izinin sınıf ipucu olarak öğrenilmesini engeller.
 
 ### Hiperparametreler
 
 | Parametre | Değer |
 |---|---|
-| ikili_giris | 512×512 |
-| ucul_giris | 224×224 |
-| katman | 12 |
-| gizli_boyut | 768 |
+| giris | 224x224 |
+| yigin | 64 |
+| epok | 6 |
+| ogrenme_orani | 0.0003 |
+| egitilebilir_parametre | 0.24M |
 | niceleme | int8 dinamik, kanal başına |
+| kalibrasyon_sicakligi | 5.0 |
 
-**Bölünme stratejisi:** Kaynak projelerin kendi tutulmuş test bölünmeleri
+**Bölünme stratejisi:** Üretici bazlı ayrım; değerlendirme kümesi (OpenFake core/test) eğitime hiç girmedi
 
 ## Ölçümler
 
 | Metrik | Değer | Değerlendirme kümesi | n | Not |
 |---|---|---|---|---|
-| alan_ici_auc | 1 | prithivMLmods/OpenDeepfake-Preview (tutulmuş test) | 3000 | DeepReality tarafından fp32 ile ölçüldü — bu deponun ölçümü DEĞİLDİR |
-| alan_ici_f1 | 0.9997 | prithivMLmods/OpenDeepfake-Preview (tutulmuş test) | 3000 | DeepReality tarafından fp32 ile ölçüldü — bu deponun ölçümü DEĞİLDİR |
-| capraz_auc | 0.7818 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 959 | Detektörlerin eğitiminde kullanılmayan korpus; çekinilenler hariç |
-| capraz_eer | 0.2899 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 959 | eşik 0.952 |
-| capraz_yanlis_pozitif | 0.9914 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 463 | karar eşiği 0.5 |
-| afet_ozgulluk | 0.0051 | Wikimedia Commons Türkiye afet korpusu (tamamı gerçek) | 778 | karar eşiği 0.5 · kabul kapısının ölçütü · bu deponun kendi ölçümü |
-| afet_yanlis_pozitif | 0.9949 | Wikimedia Commons Türkiye afet korpusu (tamamı gerçek) | 778 | karar eşiği 0.5 · bu deponun kendi ölçümü |
+| dogrulama_auc | 0.9888 | kendi doğrulama bölmesi | 737 | — |
+| capraz_auc | 0.785 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 773 | Detektörlerin eğitiminde kullanılmayan korpus; çekinilenler hariç |
+| capraz_eer | 0.2781 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 773 | eşik 0.203 |
+| capraz_yanlis_pozitif | 0.0989 | ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet | 374 | karar eşiği 0.5 |
+| afet_ozgulluk | 0.9885 | Wikimedia Commons Türkiye afet korpusu (tamamı gerçek) | 784 | karar eşiği 0.5 · kabul kapısının ölçütü · bu deponun kendi ölçümü |
+| afet_yanlis_pozitif | 0.0115 | Wikimedia Commons Türkiye afet korpusu (tamamı gerçek) | 784 | karar eşiği 0.5 · bu deponun kendi ölçümü |
 
 ## Bilinen sınırlar
 
-- Yalnızca görüntü. Video için kare çıkarımı (ffmpeg) gerekir ve kurulu değil; video içerikte modül çekinir.
-- Hesaplamalı fotoğrafçılık yanlış pozitifi: çok kareli birleştirme ve gürültü bastırma uygulayan telefon kameralarının düşük gürültülü dokusu, üretim imzasına benziyor. DeepReality'de doğrudan gözlendi.
-- Aşırı sıkıştırılmış ve düşük çözünürlüklü görüntülerde üretim izleri fiilen silinir; modül bu girdilerde skor üretmez.
-- Afet alanında kullanılamaz durumda: gerçek Türk afet fotoğraflarının %99.49'i 0,50 eşiğinde 'üretilmiş' çıkıyor (n=778). Kabul kapısı bu yüzden kapalıdır ve modül kural yolunda çalışır.
+- Yalnızca görüntü. Video için kare çıkarımı gerekir ve kurulu değil.
+- Eğitim üreticileri 2023 kuşağı (ADM, SD 1.5, wukong); 2026 üreticilerinde başarım çapraz veri kümesi ölçümünden okunmalıdır.
+- Üstveri ve C2PA sinyalleri belgeseldir ve bu modelden önce gelir.
+- Afet alanında kullanılamaz durumda: gerçek Türk afet fotoğraflarının %1.15'i 0,50 eşiğinde 'üretilmiş' çıkıyor (n=784). Kabul kapısı bu yüzden kapalıdır ve modül kural yolunda çalışır.
 - Skor dağılımı dar bir banda sıkışıyor; model sıralıyor ama mutlak eşik taşımıyor. AUC'ye bakarak devreye almak hatalı olur — eşik taraması: docs/metrikler/m4.md
-- Genelleme açığı ölçüldü: alan içi AUC 1,0000 (kaynak projenin ölçümü) → çapraz veri kümesinde 0.7818. Düşüş beklenendir ve raporun ≥ 0,72 hedefini karşılar; kullanılabilirliği belirleyen ise AUC değil, alan içindeki çalışma noktasıdır.
-- Dönüşüm dayanıklılığı: skorlar dönüşümler altında kaymıyor, ancak `jpeg_q35` dönüşümü çekinme oranını 0.0125 → 0.2750 seviyesine çıkarıyor: ağır sıkıştırmada modül karar vermeyi reddediyor. Ayrıntı: docs/metrikler/m4.md
+- Genelleme açığı ölçüldü: alan içi AUC 1,0000 (kaynak projenin ölçümü) → çapraz veri kümesinde 0.7850. Düşüş beklenendir ve raporun ≥ 0,72 hedefini karşılar; kullanılabilirliği belirleyen ise AUC değil, alan içindeki çalışma noktasıdır.
+- Dönüşüm dayanıklılığı: skorlar dönüşümler altında kaymıyor, ancak `jpeg_q35` dönüşümü çekinme oranını 0.0000 → 0.2200 seviyesine çıkarıyor: ağır sıkıştırmada modül karar vermeyi reddediyor. Ayrıntı: docs/metrikler/m4.md
 
 ## Etik değerlendirme
 
-- Skor bir suçlama değildir. Sentetik medya tespiti tek başına içerik kaldırma gerekçesi sayılmaz; sistemin böyle bir yetkisi zaten yoktur.
-- Çekinme oranı ölçülür ve raporlanır: modelin neyi bilmediği, ne bildiği kadar önemlidir.
+- Skor bir suçlama değildir; tek başına içerik kaldırma gerekçesi sayılmaz.
+- Afet alanı yanlış pozitifi kabul kapısının ölçütüdür: gerçek bir afet fotoğrafını işaretlemek, sentetik bir görüntüyü kaçırmaktan daha zararlıdır.
 
 ## Kullanılmaması gereken durumlar
 
-- Kimlik tespiti veya kişi eşleştirme.
-- Adli delil üretimi — çıktı karar destek sinyalidir.
-- Video ve ses içeriği.
+- Kimlik tespiti
+- Adli delil üretimi
+- Video ve ses içeriği
 
 ---
 

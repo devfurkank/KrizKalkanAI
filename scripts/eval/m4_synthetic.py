@@ -894,12 +894,13 @@ def _rapor_yaz(
 
 
 def _kart_guncelle(
-    capraz: dict, afet: dict | None, tarama: dict, saglamlik: dict | None
+    capraz: dict, afet: dict | None, tarama: dict, saglamlik: dict | None, dizin: Path | None = None
 ) -> Path | None:
     """Ölçümleri model kartına işler — kabul kapısı bu kartı okur."""
-    kart = ModelCard.load(MODEL_DIZINI)
+    dizin = dizin or MODEL_DIZINI
+    kart = ModelCard.load(dizin)
     if kart is None:
-        print(f"🔴 model kartı yok: {MODEL_DIZINI / 'kart.json'}")
+        print(f"🔴 model kartı yok: {dizin / 'kart.json'}")
         return None
 
     # Kaynak projeden gelen ölçümler korunur; bizim ölçümlerimiz üzerine yazılır.
@@ -1014,7 +1015,7 @@ def _kart_guncelle(
             )
 
     kart.git_commit = _git_commit()
-    kart.save(MODEL_DIZINI)
+    kart.save(dizin)
     return kart.write_markdown(REPO_ROOT / "docs" / "model-kartlari")
 
 
@@ -1029,6 +1030,12 @@ def main() -> int:
         "--dayaniklilik-sinir", type=int, default=60, help="dönüşüm başına üretilmiş örnek"
     )
     a.add_argument("--tur-sinir", type=int, default=200, help="tür analizi için küme başına örnek")
+    a.add_argument(
+        "--model-dizini",
+        type=Path,
+        default=None,
+        help="ölçülecek ağırlık dizini (varsayılan: models/m4_synthetic)",
+    )
     a.add_argument("--tohum", type=int, default=20260911)
     a.add_argument("--atla-dayaniklilik", action="store_true")
     a.add_argument(
@@ -1036,12 +1043,14 @@ def main() -> int:
     )
     args = a.parse_args()
 
-    if not (MODEL_DIZINI / "uretim.onnx").exists():
-        print(f"🔴 ağırlık yok: {MODEL_DIZINI}")
+    dizin = args.model_dizini or MODEL_DIZINI
+    if not (dizin / "uretim.onnx").exists():
+        print(f"🔴 ağırlık yok: {dizin}")
         print("   Önce: python scripts/data/build_synthetic.py")
         return 1
 
-    model = SentetikGoruntuModeli(MODEL_DIZINI)
+    print(f"→ ağırlık dizini: {dizin.name}")
+    model = SentetikGoruntuModeli(dizin)
     onbellek: dict[str, dict] | None = None if args.onbellek_yok else _onbellek_oku()
 
     print("═══ 1/5 çapraz veri kümesi ═══")
@@ -1093,7 +1102,7 @@ def main() -> int:
 
     rapor = _rapor_yaz(capraz, afet, tarama, tur, ayar, saglamlik, args.sinir)
     print(f"\n✓ {rapor.relative_to(REPO_ROOT)}")
-    if (kart := _kart_guncelle(capraz, afet, tarama, saglamlik)) is not None:
+    if (kart := _kart_guncelle(capraz, afet, tarama, saglamlik, dizin)) is not None:
         print(f"✓ {kart.relative_to(REPO_ROOT)}")
 
     ozgulluk = 1.0 - float(afet.get("yanlis_pozitif", 1.0)) if afet else 0.0

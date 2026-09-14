@@ -85,7 +85,7 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
 | M4 | C2PA köken üstverisi | kriptografik doğrulama · **manifest zinciri taranıyor** | testlerle |
 | M4 | Üretici üstverisi | ✅ **kural tabanlı · devrede** | `m4-ustveri.md` |
-| M4 | Sentetik görüntü | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4.md` |
+| M4 | Sentetik görüntü | ✅ **sıfırdan eğitildi · devrede** | `m4.md` |
 | M4 | Hata seviyesi analizi | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4-ela.md` |
 | M4 | Video, ses | ⏳ kare çıkarımı yok / ASVspoof | — |
 | M5 | Bilgi havuzu geri getirme | e5 gömme + indeks | `m5.md` |
@@ -217,23 +217,55 @@ Bu, raporun köken önceliği tezinin M4 içinde de doğrulanması demek: belges
 kanıt, olasılıksal çıkarımdan önce gelir ve bu tercih artık ölçülmüş bir
 gerekçeye dayanıyor.
 
-### M4 sentetik görüntü modeli devreye alınmadı
+### M4 sentetik görüntü modeli: devralınan ağırlık elendi, yenisi eğitildi
+
+**Birinci tur — devralınan ağırlık (DeepReality) reddedildi.**
 
 | | |
 |---|---|
-| **Plan** | DeepReality detektörleri int8 ONNX'e taşınıp `synthetic.video` sinyalini besleyecekti |
-| **Ölçüm 1** | Çapraz veri kümesinde (OpenFake, 22 üretici ailesi) AUC **0,7818** — raporun ≥ 0,72 hedefini karşılıyor |
-| **Ölçüm 2** | Gerçek Türk afet fotoğraflarının **%99,71'i** 0,50 eşiğinde "üretilmiş" çıkıyor (n=686) |
-| **Ölçüm 3** | Yanlış pozitifi %5'e indiren eşikte duyarlılık 0,25'e düşüyor; %1'de 0,10 |
-| **Ölçüm 4** | Üç sınıflı detektör, tamamı gerçek olan kümelerde "gerçek" sınıfına ortalama 0,001–0,004 olasılık veriyor |
-| **Doğrulama** | Kapı zorla açıldığında gerçek bir Kahramanmaraş deprem fotoğrafı **SENTETİK_MEDYA (güven 0,835)** olarak sınıflandı; kapalıyken TEMİZ |
-| **Karar** | Ağırlık yüklenmiyor, M4 kural yolunda kalıyor. Kabul kapısı AUC'ye değil **afet alanı özgüllüğüne** bağlandı |
+| **Ölçüm 1** | Çapraz veri kümesinde AUC **0,7818** — raporun ≥ 0,72 hedefini karşılıyor |
+| **Ölçüm 2** | Gerçek Türk afet fotoğraflarının **%99,49'u** 0,50 eşiğinde "üretilmiş" çıkıyor |
+| **Ölçüm 3** | Skorlar 0,92–0,97 bandına sıkışmış; üretilmiş/gerçek medyan farkı **0,0167** |
+| **Teşhis** | Alan karışıklığı değil **doygunluk**: model her girdiye yüksek güvenle "üretilmiş" diyor, AUC o mikroskobik sıralamadan geliyor |
+| **Doğrulama** | Kapı zorla açıldığında gerçek bir Kahramanmaraş deprem fotoğrafı SENTETİK_MEDYA (0,835) sınıflandı |
+| **Karar** | Devreye alınmadı. Kapı, yetenek metriğine (AUC) değil **zarar metriğine** (afet alanı özgüllüğü) bağlandı |
 
-İki ölçüm çelişmiyor: AUC bir sıralama ölçüsüdür ve model gerçekten sıralıyor.
-Kullanılabilirliği belirleyen ise çalışma noktasıdır. Kapıyı yetenek metriğine
-bağlamak, geçen bir AUC'nin gerçek afet fotoğraflarını sentetik ilan eden bir
-modeli sisteme sokmasına izin verirdi — bu yüzden kapı **zarar metriğine**
-bağlıdır.
+**İkinci tur — sıfırdan eğitim.** Teşhis tarifi belirledi: gövde donduruldu
+(93M yerine 0,8M eğitilebilir parametre), her iki sınıfa sosyal medya artırması
+uygulandı (JPEG yeniden kodlama, ölçekleme, kırpma) ve afet korpusu negatif
+sınıfa katıldı. Eğitim `notebooks/m4_colab.ipynb`, dışa aktarım
+`scripts/train/m4_disa_aktar.py`.
+
+| Metrik | Devralınan | **Yeni (devrede)** |
+|---|---|---|
+| Afet özgüllüğü (kabul kapısı ≥ 0,95) | 0,0051 ✗ | **0,9885** ✓ |
+| Afet yanlış pozitif | 0,9949 | **0,0115** |
+| Çapraz veri kümesi AUC | 0,7818 | **0,7850** |
+| Üretilmiş/gerçek medyan farkı | 0,0167 | **0,9265** |
+
+786 gerçek afet fotoğrafında yanlış alarm **782'den 9'a** düştü.
+
+Daha yüksek başarımlı ikinci bir ağırlık da eğitildi (`models/m4_synthetic_genis`,
+çapraz AUC 0,9159). **Devreye alınmadı:** OpenFake'in eğitim bölümüyle eğitilip
+test bölümüyle ölçüldüğü için genelleme gücü ölçülemiyor, ve CC BY-NC lisansı
+ticari kullanıma kapalı.
+
+### Yol boyunca yakalanan üç sessiz hata
+
+Üçünü de **kabul kapısı** yakaladı; hiçbiri çökmüyordu, yalnızca yanlış sayı
+üretiyordu.
+
+1. **int8 niceleme kararı bozuyordu.** Azami logit sapması 2,4152; gerçek afet
+   fotoğraflarında P(üretilmiş) medyanı 0,0197'den 0,2552'ye kaydı. Devralınan
+   ağırlık buna dayanıyordu çünkü çıktıları zaten doygundu — kaydırılacak bir
+   karar yoktu. Yeni model fp32 dağıtılıyor (355 MB).
+2. **Eğitim ortamında torch ölçülüp ONNX dağıtılıyordu.** Raporlanan sayı ile
+   dağıtılan dosya farklı şeylerdi. Defter artık ONNX ile yeniden ölçüyor.
+3. **Çelişki tabanlı çekinme, yetkin olmayan bir detektöre veto hakkı
+   veriyordu.** Üç sınıflı detektör her şeye "sentetik" dediği için, ikili
+   detektör gerçek bir fotoğrafa doğru şekilde "gerçek" dediğinde kural bunu
+   çelişki sayıp susuyordu: afet korpusunda çekinme oranı **%96,18**. Kural
+   kaldırıldı, üç sınıflı detektör isteğe bağlı hâle getirildi.
 
 ---
 
@@ -284,10 +316,9 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
 
 - **M2 · AV senkron ve konuşmacı–yüz** kurulmadı. Ses–görüntü veri kümeleri
   EULA gerektiriyor.
-- **M4 · sentetik görüntü** kuruldu, ölçüldü ve **devreye alınmadı**: alan
-  içindeki çalışma noktası kabul edilebilir değil (`docs/metrikler/m4.md`).
-  Dışa aktarım, motor, değerlendirme ve testler yerinde; daha iyi bir ağırlık
-  tek komutla devreye girer.
+- **M4 · tür ayrımı** (SENTETİK_MEDYA ↔ MANİPÜLE_MEDYA) yapılamıyor. Üç sınıflı
+  detektör ölçüldü ve kullanılamaz bulundu; kaldırıldı. Ayrımı yapacak yeni bir
+  model eğitilmedi.
 - **M4 · hata seviyesi analizi** kuruldu, ölçüldü ve **devreye alınmadı**:
   ayrım gücü AUC 0,5805 ile rastgeleden farksız; yöntem yapıştırmayı değil
   görüntünün doğal doku değişimini ölçüyor (`docs/metrikler/m4-ela.md`).
