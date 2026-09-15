@@ -261,6 +261,20 @@ def test_model_kural_sifiri_tetikleyemez(monkeypatch) -> None:
     assert model_sinyali.score > 0.35, "sinyal raporlanıyor ama karara girmiyor"
 
 
+def test_esik_alti_model_skoru_kanit_uretmez(monkeypatch) -> None:
+    """Model metni yardım çağrısı saymıyorsa "benzetiyor" kanıtı gösterilmez."""
+    from krizkalkan_core.text import engine as text_engine
+    from krizkalkan_core.text import model as m3
+
+    class _DusukSkorluM3(_SahteM3):
+        def yardim_skoru(self, olasilik: float) -> float:
+            return 0.065
+
+    monkeypatch.setattr(m3, "get", lambda: _DusukSkorluM3())
+    _, sinyaller = text_engine.analyse("Malatya'da deprem sonrası çöken binalar, ekipler enkazda.")
+    assert all(s.key != "text.help_call_model" for s in sinyaller)
+
+
 def test_gercek_yardim_cagrisi_sozlukle_korunur(monkeypatch) -> None:
     """Türkçe yardım çağrısı, model olsun olmasın korunmalıdır."""
     from krizkalkan_core.text import engine as text_engine

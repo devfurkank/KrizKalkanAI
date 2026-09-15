@@ -210,17 +210,28 @@ def analyse(
     # ── 3. Sahne–iddia uyumu ──
     # Parmak izi gerçek bir dosyayı işaret ediyorsa görsel-dil modeli çalışır;
     # demo parmak izleri sözlük yoluyla devam eder.
-    yol = Path(fingerprint)
-    # Yapılandırılmış iddia ŞART DEĞİL: sahne karşılaştırması metnin ne iddia
-    # ettiğine bakar. Konumsuz cümlelerden sözlük iddia çıkarmadığı için bu
-    # koşul sinyali tümüyle susturuyordu.
-    if (
-        (claims or body)
-        and len(fingerprint) < 400
-        and yol.is_file()
-        and (sahne := _sahne_sinyali(yol, claims, body)) is not None
-    ):
-        signals.append(sahne)
+    #
+    # Gerçek dosya sözlük yoluna DÜŞMEZ: o yol skoru parmak izi dizesinden
+    # türetir ve dayanak kelimeyi bulamayınca 0,55–0,78 "çelişki" üretir —
+    # gerçek bir dosya adında bu, rastgele bir yanlış bağlam suçlamasıdır.
+    # Model yoksa ya da karşılaştırma yapılamadıysa sinyal çekinir.
+    if len(fingerprint) < 400 and (yol := Path(fingerprint)).is_file():
+        # Yapılandırılmış iddia ŞART DEĞİL: sahne karşılaştırması metnin ne
+        # iddia ettiğine bakar. Konumsuz cümlelerden sözlük iddia çıkarmadığı
+        # için bu koşul sinyali tümüyle susturuyordu.
+        if claims or body:
+            signals.append(
+                _sahne_sinyali(yol, claims, body)
+                or Signal(
+                    module="M2",
+                    key="multimodal.scene_claim",
+                    label="Sahne–iddia uyumu",
+                    score=0.0,
+                    raw_score=0.0,
+                    abstained=True,
+                    abstain_reason="Sahne modeli yüklü değil ya da görüntü karşılaştırılamadı",
+                )
+            )
         return signals
 
     if claims:

@@ -203,7 +203,11 @@ def _kayit(sayfa: dict, kategori: Kategori) -> dict | None:
 
     # Çekim tarihi varsa o, yoksa yükleme tarihi. "İlk kez ne zaman yayımlandı"
     # sorusunun cevabı budur ve yanlış bağlam kanıtının çekirdeğidir.
-    tarih = alan("DateTimeOriginal") or bilgi.get("timestamp", "")
+    #
+    # Commons tarihi biçimli HTML olarak da döndürebilir: görünen metin ilk
+    # etiketten önce gelir, ardındaki gizli blok makine içindir.
+    tarih = (alan("DateTimeOriginal") or "").split("<", 1)[0].strip()
+    tarih = tarih or bilgi.get("timestamp", "")
     return {
         "baslik": sayfa.get("title", ""),
         "olay": kategori.olay,

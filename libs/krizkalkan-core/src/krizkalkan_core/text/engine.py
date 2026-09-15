@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 
 from krizkalkan_core.schemas import Evidence, ExtractedClaim, Signal, TextAnalysis
-from krizkalkan_core.taxonomy import Certainty, ClaimType
+from krizkalkan_core.taxonomy import HELP_CALL_THRESHOLD, Certainty, ClaimType
 from krizkalkan_core.taxonomy import ManipulationLabel as L
 from krizkalkan_core.text import lexicon as lex
 from krizkalkan_core.text import model as m3
@@ -310,8 +310,12 @@ def _modelle_zenginlestir(
     # Model çıktısı yine de raporlanır — moderatöre ve kanıt paneline bilgi
     # olarak gider, karara girmez. Türkçe etiketli yardım çağrısı kümesi
     # oluşturulduğunda bu karar ölçümle yeniden ele alınmalıdır.
+    #
+    # Yalnızca modelin kendi çalışma noktası aşıldığında raporlanır: eşiğin
+    # altında model metni yardım çağrısı SAYMIYOR ve "benzetiyor" kanıtı
+    # yanlış olurdu (0,065 skorlu sıradan bir haber metninde görülüyordu).
     model_skoru = model.yardim_skoru(cikti.yardim_olasilik)
-    if model_skoru > analysis.help_call_score:
+    if model_skoru >= HELP_CALL_THRESHOLD and model_skoru > analysis.help_call_score:
         signals.append(
             Signal(
                 module="M3",

@@ -31,6 +31,19 @@ GEREKLI_DOSYALAR = ("index.jsonl",)
 IVF_ESIGI = 1_000_000
 
 
+def _gorunen_metin(deger: str | None) -> str | None:
+    """Commons üstverisinden sızan HTML'i ayıklar.
+
+    Commons tarihi biçimli HTML olarak döndürebilir; görünen metin ilk
+    etiketten önce gelir, ardındaki gizli blok makine içindir. Toplayıcı alanı
+    40 karakterde kestiği için etiket yarıda kalıyor ve kanıt panelinde
+    '20 March 1993<div style="display: none;"' görünüyordu (24 kayıt).
+    """
+    if not deger:
+        return None
+    return deger.split("<", 1)[0].strip() or None
+
+
 @dataclass(frozen=True, slots=True)
 class Kayit:
     """İndeksteki tek bir referans görüntü."""
@@ -85,7 +98,7 @@ class ProvenanceIndex:
                             kayit_id=ham["kayit_id"],
                             olay=ham["olay"],
                             konum=ham["konum"],
-                            ilk_yayin=ham.get("ilk_yayin"),
+                            ilk_yayin=_gorunen_metin(ham.get("ilk_yayin")),
                             kaynak_url=ham.get("kaynak_url"),
                             lisans=ham.get("lisans"),
                             dosya=ham["dosya"],

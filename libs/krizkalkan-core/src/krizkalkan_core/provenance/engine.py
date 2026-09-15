@@ -24,6 +24,16 @@ from krizkalkan_core.text.lexicon import normalize
 
 logger = logging.getLogger(__name__)
 
+#: Sorgu dHash'inde bulunması gereken asgari bit sayısı.
+#:
+#: Tek renkli ya da neredeyse düz bir görüntünün dHash'i sıfıra yakındır ve
+#: indeksteki düşük dokulu kayıtlara "yakın" düşer: düz kahverengi bir kare,
+#: Halep müzesinin kırpılmış bir fotoğrafıyla 9 bit mesafede eşleşip yanlış
+#: bağlam kararı üretiyordu. Ölçüm (1.758 kayıt): kayıtların %99,5'i ≥ 15 bit
+#: taşır, en düşüğü 9 bittir; sıfır karmaya ≤ 10 bit uzaklıkta yalnızca 2 kayıt
+#: vardır. Bu eşiğin altındaki sorgu bilgi taşımaz ve aranmaz.
+ASGARI_KARMA_BITI = 12
+
 
 def _konum_celiskisi(iddia_konumu: str | None, kayit_konumu: str | None) -> bool:
     """Metindeki konum ile kaydın konumu çelişiyor mu?
@@ -58,20 +68,68 @@ def _medya_yolu(fingerprint: str) -> Path | None:
     return yol if yol.is_file() and imaging.gorsel_mi(yol) else None
 
 
-def _indeks_eslesmesi(
+def _cekinme(neden: str, *kanitlar: Evidence) -> Signal:
+    return Signal(
+        module="M1",
+        key="provenance.match",
+        label="Köken eşleşmesi",
+        score=0.0,
+        raw_score=0.0,
+        abstained=True,
+        abstain_reason=neden,
+        evidence=list(kanitlar),
+    )
+
+
+def _gercek_medya(
     yol: Path, claimed_location: str | None = None
-) -> tuple[ProvenanceMatch, list[Evidence]] | None:
-    """Gerçek görüntüyü köken indeksinde arar; indeks yoksa None."""
+) -> tuple[ProvenanceMatch | None, list[Signal]]:
+    """Gerçek görüntünün kökenini referans indeksinde arar.
+
+    Gerçek dosya hiçbir koşulda demo korpusuna DÜŞMEZ: o yol parmak izi
+    dizesini karmalar, yani görüntü hakkında değil dosyanın adı hakkında
+    konuşur. İndeks yoksa ya da görüntü aranamıyorsa modül çekinir.
+    """
     indeks = index.get()
     if indeks is None:
-        return None
+        return None, [_cekinme("Köken referans indeksi yüklü değil")]
 
     try:
         dhash, phash = imaging.karmalar(yol)
     except Exception:  # bozuk/okunamayan dosya köken sorgusunu düşürmemeli
         logger.warning("Görüntü okunamadı, köken sorgusu atlandı: %s", yol)
-        return None
+        return None, [_cekinme("Görüntü okunamadı; köken sorgusu yapılamadı")]
 
+    if (bit := dhash.bit_count()) < ASGARI_KARMA_BITI:
+        return None, [
+            _cekinme(
+                "Görüntü ayırt edici ayrıntı taşımıyor; köken araması güvenilir olmaz",
+                Evidence(
+                    kind="ustveri",
+                    label="Görüntü neredeyse düz: algısal karma bilgi taşımıyor",
+                    locator=f"dHash {dhash:016x}",
+                    detail=f"karmada {bit}/64 bit bilgi var · asgari {ASGARI_KARMA_BITI}",
+                ),
+            )
+        ]
+
+    match, kanitlar = _indeks_eslesmesi(indeks, dhash, phash, claimed_location)
+    return match, [
+        Signal(
+            module="M1",
+            key="provenance.match",
+            label="Köken eşleşmesi (yeniden bağlam)" if match.matched else "Köken eşleşmesi",
+            score=match.similarity,
+            raw_score=match.similarity,
+            evidence=kanitlar,
+        )
+    ]
+
+
+def _indeks_eslesmesi(
+    indeks: index.ProvenanceIndex, dhash: int, phash: int, claimed_location: str | None
+) -> tuple[ProvenanceMatch, list[Evidence]]:
+    """Karmaları indekste arar; eşleşme ve kanıtlarını döndürür."""
     adaylar = indeks.ara(dhash, phash, k=1)
     if not adaylar or not adaylar[0].eslesti:
         return ProvenanceMatch(matched=False), [
@@ -182,23 +240,7 @@ def analyse(
     # Gerçek görüntü geldiyse indeks üzerinden ara; demo parmak izleri
     # tohumlanmış korpusla eşleşmeye devam eder.
     if (yol := _medya_yolu(fingerprint)) is not None:
-        sonuc = _indeks_eslesmesi(yol, claimed_location)
-        if sonuc is not None:
-            gercek_match, kanitlar = sonuc
-            return gercek_match, [
-                Signal(
-                    module="M1",
-                    key="provenance.match",
-                    label=(
-                        "Köken eşleşmesi (yeniden bağlam)"
-                        if gercek_match.matched
-                        else "Köken eşleşmesi"
-                    ),
-                    score=gercek_match.similarity,
-                    raw_score=gercek_match.similarity,
-                    evidence=kanitlar,
-                )
-            ]
+        return _gercek_medya(yol, claimed_location)
 
     match, entry = lookup(fingerprint)
 
