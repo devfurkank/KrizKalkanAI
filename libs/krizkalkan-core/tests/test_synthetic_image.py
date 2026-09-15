@@ -177,8 +177,10 @@ def _cikarim_modeli() -> SentetikGoruntuModeli:
 
     Dağılım dışı kontrolleri modelden ÖNCE çalışır; bu yüzden oturumlara hiç
     dokunulmadan sınanabilirler. Bu, testin ağırlık gerektirmemesinin sebebidir.
+
+    numpy yalnızca [models] ekiyle gelir; CI'da yoksa bu testler atlanır.
     """
-    import numpy as np
+    np = pytest.importorskip("numpy", reason="numpy kurulu değil")
 
     model = SentetikGoruntuModeli.__new__(SentetikGoruntuModeli)
     model._np = np

@@ -20,21 +20,18 @@ from krizkalkan_core.provenance import index
 from krizkalkan_core.provenance.index import _gorunen_metin
 from krizkalkan_core.taxonomy import Verdict
 
-pytest.importorskip("PIL", reason="pillow kurulu değil")
-pytest.importorskip("imagehash", reason="imagehash kurulu değil")
-
 
 @pytest.fixture
 def duz_gorsel(tmp_path: Path) -> Path:
-    from PIL import Image
+    image = pytest.importorskip("PIL.Image", reason="pillow kurulu değil")
 
     yol = tmp_path / "duz.png"
-    Image.new("RGB", (640, 480), (120, 90, 60)).save(yol)
+    image.new("RGB", (640, 480), (120, 90, 60)).save(yol)
     return yol
 
 
 class _IzleyenIndeks:
-    """Çağrılırsa her sorguyu eşleştiren sahte indeks."""
+    """Sorgulanıp sorgulanmadığını kaydeden sahte indeks."""
 
     def __init__(self) -> None:
         self.soruldu = False
@@ -48,6 +45,8 @@ class _IzleyenIndeks:
 
 
 def test_duz_gorsel_indekste_aranmaz(duz_gorsel: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Karma hesaplanamazsa modül "okunamadı" diye çekinir; ölçülen şey o değil.
+    pytest.importorskip("imagehash", reason="imagehash kurulu değil")
     sahte = _IzleyenIndeks()
     monkeypatch.setattr(index, "get", lambda: sahte)
 
