@@ -157,11 +157,38 @@ def _indirge(kaynak: Path, hedef: Path, tohum: str, havuz: list[tuple[int, float
     }
 
 
+def _oldugu_gibi(kaynak: Path, hedef: Path) -> dict:
+    """Biçimi zaten uygulanmış görseli olduğu gibi alır ve ölçer.
+
+    Colab defteri (`notebooks/m4_sentetik_uretim.ipynb`) biçim profilini üretim
+    anında uyguluyor. Burada ikinci kez kodlamak her dosyaya çift JPEG
+    sıkıştırması bindirirdi ve çift sıkıştırma izi başlı başına bir
+    karıştırıcıdır — tam da bu korpusta kaçınmaya çalıştığımız şey.
+    """
+    import shutil
+
+    from PIL import Image
+
+    shutil.copyfile(kaynak, hedef)
+    im = Image.open(hedef)
+    bayt = hedef.stat().st_size
+    return {
+        "boyut": f"{im.width}x{im.height}",
+        "bayt": bayt,
+        "bayt_piksel": round(bayt / (im.width * im.height), 4),
+    }
+
+
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--ham", type=Path, help="ham üretilmiş görsellerin dizini")
     a.add_argument("--kayit", type=Path, help="üretim kaydı JSON (dosya → tur/komut/uretici)")
     a.add_argument("--profil", action="store_true", help="yalnızca gerçek korpus profilini bas")
+    a.add_argument(
+        "--bicim-uygulanmis",
+        action="store_true",
+        help="görseller zaten biçim profiline oturtulmuş (Colab defteri) — yeniden kodlama",
+    )
     args = a.parse_args()
 
     if args.profil:
@@ -178,10 +205,12 @@ def main() -> int:
     goruntuler = HEDEF / "goruntuler"
     goruntuler.mkdir(parents=True, exist_ok=True)
 
-    havuz = _gercek_profil()
-    if not havuz:
-        print("🔴 gerçek korpus yok; biçim hedefi çekilemez")
-        return 1
+    havuz: list[tuple[int, float]] = []
+    if not args.bicim_uygulanmis:
+        havuz = _gercek_profil()
+        if not havuz:
+            print("🔴 gerçek korpus yok; biçim hedefi çekilemez")
+            return 1
 
     kayitlar: list[dict] = []
     atlanan = 0
@@ -193,8 +222,16 @@ def main() -> int:
         # SYNTH_ öneki etik protokol 2(d) gereğidir: dosya adı tek başına
         # içeriğin sentetik olduğunu söylemelidir. Filigran ve C2PA işareti
         # (2a, 2c) bilinçli olarak UYGULANMAZ; gerekçe docs/etik-protokol.md §6.3.
-        ad = f"SYNTH_{_slug(kayit['tur'])}_{_slug(kayit['uretici'])}_{len(kayitlar):04d}.jpg"
-        olcum = _indirge(kaynak, goruntuler / ad, ad, havuz)
+        ad = (
+            kayit["dosya"]
+            if kayit["dosya"].startswith("SYNTH_")
+            else f"SYNTH_{_slug(kayit['tur'])}_{_slug(kayit['uretici'])}_{len(kayitlar):04d}.jpg"
+        )
+        olcum = (
+            _oldugu_gibi(kaynak, goruntuler / ad)
+            if args.bicim_uygulanmis
+            else _indirge(kaynak, goruntuler / ad, ad, havuz)
+        )
         kayitlar.append({"dosya": ad, **{k: v for k, v in kayit.items() if k != "dosya"}, **olcum})
 
     if atlanan:
@@ -221,6 +258,22 @@ def main() -> int:
     for k in kayitlar:
         ureticiler[k["uretici"]] = ureticiler.get(k["uretici"], 0) + 1
     print("  üretici: " + " · ".join(f"{u} ({n})" for u, n in sorted(ureticiler.items())))
+
+    roller: dict[str, int] = {}
+    for k in kayitlar:
+        roller[k.get("rol", "—")] = roller.get(k.get("rol", "—"), 0) + 1
+    if set(roller) != {"—"}:
+        print("  rol: " + " · ".join(f"{r} ({n})" for r, n in sorted(roller.items())))
+
+    # Bir üretici iki rolde olamaz: olursa eğitim ile ölçüm aynı üreticiyi
+    # görür ve ölçülen şey genelleme değil ezber olur.
+    rol_haritasi: dict[str, set[str]] = {}
+    for k in kayitlar:
+        rol_haritasi.setdefault(k["uretici"], set()).add(k.get("rol", "—"))
+    if bozuk := {u: r for u, r in rol_haritasi.items() if len(r) > 1}:
+        print(f"  🔴 ROL AYRIMI BOZUK: {bozuk}")
+        print("     Aynı üretici hem eğitimde hem ölçümde — genelleme ölçülemez.")
+        return 1
     return 0
 
 
