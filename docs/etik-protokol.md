@@ -102,7 +102,7 @@ takımın bilmesi gereken boşlukları gösterir.
 
 | Taahhüt (rapor) | Şu anki durum | |
 |---|---|---|
-| Ham medya analiz sonrası saklanmaz | Analiz hattı ham medyayı diske yazmıyor | ✅ |
+| Ham medya analiz sonrası saklanmaz | Yüklenen görsel yalnızca analiz süresince, sahibine özel (0600) geçici bir dosyada durur ve analiz biter bitmez silinir (`apps/api/src/krizkalkan_api/media.py`). Dosya adı gönderiye girmez; akışta görseli yalnızca yükleyen tarayıcı kendi belleğinden gösterir. Testle kilitli (`apps/api/tests/test_media.py`) | ✅ |
 | Yalnızca geri döndürülemez gömmeler ve karmalar tutulur | Analiz önbelleği `AnalysisResult` nesnelerini tutuyor. Bu nesneler **iddia metninden alıntılar** ve kanıt etiketlerinde **kullanıcı metninden parçalar** içeriyor | ❌ |
 | Varsayılan saklama 24 saat, sonra imha | Önbellekte süre sınırı yok, süreç yaşadığı sürece büyüyor | ❌ |
 | Veri silme talebi akışı arayüzde | Silme uç noktası yok | ❌ |
@@ -353,6 +353,7 @@ plana el yerleştirdi. Kayıtta `cerceve_kusuru` alanıyla işaretlidirler ve
 | Resmî duyuruların "yalan" olarak etiketlenmesi | Bilgi havuzunda "resmî kaynak sessiz" ile "yalan" ayrımı yapılıyor. Geri getirmede veto var | ✅ Ölçüldü (bkz. `m5.md`) |
 | Tekzip paylaşan kullanıcının dezenformasyon yayıyor sayılması | Yalanlama çerçevesi tespiti yapılıyor | ✅ Testle kilitli |
 | Doğru bağlamda paylaşılan arşiv görüntüsünün suçlanması | Köken eşleşmesi tek başına sınıf kurmuyor, bağlam çelişkisi şartı aranıyor | ✅ Testle kilitli |
+| Kullanıcının yüklediği görselin rastgele suçlanması | Gerçek dosya demo sözlük yoluna düşmüyor (o yol skoru dosya adından türetiyordu); bilgi taşımayan (düz) görsel köken indeksinde aranmıyor | ✅ Testle kilitli (`test_gercek_medya.py`) |
 | Yarım eğitilmiş bir modelin sistemi sessizce bozması | Kabul kapısı var: ölçüm kartı olmayan ağırlık yüklenmiyor | ✅ |
 | Modelden kişisel veri sızması | Ham medya saklanmıyor, kullanıcı metninin gömmesi saklanmıyor | ✅ · ❌ Önbellekte metin alıntısı var |
 

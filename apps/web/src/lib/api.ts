@@ -29,23 +29,34 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // FormData gövdesinde içerik türünü (sınır dizesiyle birlikte) tarayıcı
+  // kendisi yazar; elle JSON başlığı eklemek yüklemeyi bozar.
+  const isForm = init?.body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`${BASE}${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: isForm ? init?.headers : { "Content-Type": "application/json", ...init?.headers },
       cache: "no-store",
     });
   } catch {
     throw new ApiError("Analiz servisine ulaşılamıyor. API çalışıyor mu? (make dev-api)");
   }
   if (!response.ok) {
-    throw new ApiError(
-      `Servis ${response.status} döndürdü: ${response.statusText}`,
-      response.status,
-    );
+    throw new ApiError(await errorMessage(response), response.status);
   }
   return (await response.json()) as T;
+}
+
+/** Sunucunun hata ayrıntısını (FastAPI `detail`) varsa kullanıcıya taşır. */
+async function errorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+  } catch {
+    // Gövde JSON değil; durum koduyla yetinilir.
+  }
+  return `Servis ${response.status} döndürdü: ${response.statusText}`;
 }
 
 // ─────────────────────────── akış ───────────────────────────
@@ -74,6 +85,38 @@ export const createPost = (payload: CreatePostPayload) =>
   request<Post>("/api/posts", {
     method: "POST",
     body: JSON.stringify({ media_kind: "yok", audience: "herkes", ...payload }),
+  });
+
+// ─────────────────────────── gerçek görsel ───────────────────────────
+// Görsel modüller (M1 köken, M2 sahne–iddia, M4 sentetik) yalnızca gerçek
+// dosyada çalışır. Dosya iki istekte de yeniden gönderilir: sunucu onu analiz
+// biter bitmez siler, arada saklamaz.
+
+/** Kabul edilen biçimler ve boyut sınırı — sunucudakiyle (media.py) aynı. */
+export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+
+function mediaForm(file: File, fields: Record<string, string>): FormData {
+  const form = new FormData();
+  form.append("file", file);
+  for (const [key, value] of Object.entries(fields)) form.append(key, value);
+  return form;
+}
+
+export const analyzeMedia = (body: string, file: File) =>
+  request<AnalysisResult>("/api/analyze/media", {
+    method: "POST",
+    body: mediaForm(file, { body }),
+  });
+
+export const createPostWithMedia = (
+  body: string,
+  file: File,
+  audience: NonNullable<CreatePostPayload["audience"]> = "herkes",
+) =>
+  request<Post>("/api/posts/media", {
+    method: "POST",
+    body: mediaForm(file, { body, audience }),
   });
 
 // ─────────────────────────── moderasyon ───────────────────────────

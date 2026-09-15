@@ -118,6 +118,8 @@ export interface MediaRef {
   tiles: string[];
   poster: string | null;
   label: string | null;
+  /** Kullanıcının yüklediği gerçek görsel; sunucu dosyayı saklamaz. */
+  uploaded?: boolean;
 }
 
 export interface Post {

@@ -176,6 +176,9 @@ class MediaRef(BaseModel):
     tiles: list[str] = Field(default_factory=list)
     poster: str | None = None
     label: str | None = None
+    #: Kullanıcının yüklediği gerçek görsel. Sunucu dosyayı analiz sonrası
+    #: saklamaz; görseli yalnızca yükleyen tarayıcı gösterir.
+    uploaded: bool = False
 
 
 class Post(BaseModel):

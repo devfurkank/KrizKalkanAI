@@ -4,11 +4,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from krizkalkan_core.pipeline import pipeline
-from krizkalkan_core.schemas import AnalysisResult, AnalyzeRequest, CreatePostRequest, Post
+from krizkalkan_core.schemas import (
+    AnalysisResult,
+    AnalyzeRequest,
+    CreatePostRequest,
+    MediaRef,
+    Post,
+)
 
+from krizkalkan_api.media import temporary_upload
 from krizkalkan_api.seed import AUTHORS, MEDIA_BY_KIND
 from krizkalkan_api.store import store
 
@@ -18,6 +26,13 @@ router = APIRouter(prefix="/api", tags=["gönderiler"])
 CURRENT_USER = AUTHORS["kullanici1"].model_copy(
     update={"name": "Furkan K.", "handle": "furkankeskin"}
 )
+
+#: Yüklenen görselin gönderideki temsili. Dosya adı bilinçli olarak
+#: saklanmaz: kişisel bilgi taşıyabilir ve analizde hiçbir rol oynamaz.
+UPLOADED_IMAGE = MediaRef(kind="image", label="Yüklenen görsel", uploaded=True)
+
+Body = Annotated[str, Form(max_length=10_000)]
+Audience = Annotated[Literal["herkes", "takipciler", "belirli"], Form()]
 
 
 @router.get("/posts", response_model=list[Post])
@@ -50,6 +65,19 @@ def analyze(payload: AnalyzeRequest) -> AnalysisResult:
     return result
 
 
+@router.post("/analyze/media", response_model=AnalysisResult)
+def analyze_media(file: Annotated[UploadFile, File()], body: Body = "") -> AnalysisResult:
+    """Yüklenen gerçek görseli paylaşmadan önce analiz eder (Akış 1).
+
+    Görsel modüller (M1 köken indeksi, M2 sahne–iddia, M4 sentetik görüntü,
+    C2PA) yalnızca gerçek dosyada çalışır. Dosya analiz biter bitmez silinir.
+    """
+    with temporary_upload(file) as path:
+        result = pipeline.analyse(body=body, media_kind="image", media_fingerprint=str(path))
+    store.add_analysis(result)
+    return result
+
+
 @router.post("/posts", response_model=Post, status_code=201)
 def create_post(payload: CreatePostRequest) -> Post:
     """Gönderiyi yayımlar.
@@ -64,13 +92,46 @@ def create_post(payload: CreatePostRequest) -> Post:
         media_fingerprint=payload.media_fingerprint,
         content_id=post_id,
     )
+    return _publish(
+        post_id=post_id,
+        body=payload.body,
+        audience=payload.audience,
+        media=MEDIA_BY_KIND.get(payload.media_kind),
+        analysis=analysis,
+    )
+
+
+@router.post("/posts/media", response_model=Post, status_code=201)
+def create_post_with_media(
+    file: Annotated[UploadFile, File()], body: Body = "", audience: Audience = "herkes"
+) -> Post:
+    """Gerçek görselli gönderiyi yayımlar; görsel analiz sonrası saklanmaz."""
+    post_id = f"g_{uuid.uuid4().hex[:10]}"
+    with temporary_upload(file) as path:
+        analysis = pipeline.analyse(
+            body=body, media_kind="image", media_fingerprint=str(path), content_id=post_id
+        )
+    return _publish(
+        post_id=post_id, body=body, audience=audience, media=UPLOADED_IMAGE, analysis=analysis
+    )
+
+
+def _publish(
+    *,
+    post_id: str,
+    body: str,
+    audience: Literal["herkes", "takipciler", "belirli"],
+    media: MediaRef | None,
+    analysis: AnalysisResult,
+) -> Post:
+    """Analizi tamamlanmış gönderiyi akışa ekler ve denetim kaydına işler."""
     post = Post(
         id=post_id,
         author=CURRENT_USER,
-        body=payload.body,
+        body=body,
         created_at=datetime.now(UTC),
-        audience=payload.audience,
-        media=MEDIA_BY_KIND.get(payload.media_kind),
+        audience=audience,
+        media=media,
         stats={"replies": 0, "quotes": 0, "boosts": 0, "views": 0},
         analysis=analysis,
         shared_despite_warning=analysis.intervention.level.value == "SEVIYE_3",
