@@ -85,7 +85,7 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
 | M4 | C2PA köken üstverisi | kriptografik doğrulama · **manifest zinciri taranıyor** | testlerle |
 | M4 | Üretici üstverisi | ✅ **kural tabanlı · devrede** | `m4-ustveri.md` |
-| M4 | Sentetik görüntü | ✅ **sıfırdan eğitildi · devrede** | `m4.md` |
+| M4 | Sentetik görüntü | ⚠️ sıfırdan eğitildi · devrede · **kriz alanında kör** | `m4.md` |
 | M4 | Hata seviyesi analizi | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4-ela.md` |
 | M4 | Video, ses | ⏳ kare çıkarımı yok / ASVspoof | — |
 | M5 | Bilgi havuzu geri getirme | e5 gömme + indeks | `m5.md` |
@@ -312,6 +312,47 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
 
 ---
 
+### M4'ün ölçülmemiş yarısı: kapı bir yanı ödüllendiriyordu
+
+| | |
+|---|---|
+| **Beklenti** | `afet_ozgulluk ≥ 0,95` kabul kapısı M4'ün afet alanındaki yetkinliğini güvence altına alıyordu |
+| **Ölçüm** | Kapı yalnızca **yanlış pozitifi** ölçüyor. Doğru pozitif hiç ölçülmemişti — üretilmiş afet görselinden oluşan bir küme yoktu |
+| **Bulgu** | Küme kuruldu (n=35). Model **0/35** yakalıyor; P(üretilmiş) medyanı 0,0259 |
+| **Karar** | Ölçüm kalıcı hâle getirildi (`afet_duyarlilik`), model kartına ve rapora yazıldı. Kapı **değiştirilmedi** — değiştirmek M4'ü yarışma öncesi devreden çıkarırdı; karar takımındır |
+
+Kapının tek yanlı olması yapısal bir kusurdur: **her görüntüye "gerçek" diyen
+bozuk bir model `afet_ozgulluk` metriğinden 1,0000 alır.** Mevcut model tam da
+o yöne kaymış durumda ve kapı bunu göremiyordu.
+
+Muhtemel sebep eğitim kümesinin kuruluşunda: afet korpusu **negatif** sınıfa
+kondu, pozitif sınıfta hiç afet içeriği yoktu. Model büyük olasılıkla
+"afet sahnesi → gerçek" kısayolunu öğrendi. Yanlış alarmların 782/786'dan
+9/786'ya düşmesi ile bu kör nokta **aynı madalyonun iki yüzü**.
+
+İki model de aynı kör noktayı taşıyor: `temiz` 0/35, `genis` 2/35. Ortak
+sebep ikisinde de aynı: afet korpusu negatif sınıfta.
+
+Düzeltme yolu ölçüldü ama uygulanmadı: pozitif sınıfa üretilmiş afet görseli
+konmalı. Elimizde 35 tane var; eğitim için birkaç yüz gerekir.
+
+### Kalibrasyon bir sinyali sessizce kesebilir
+
+M6 kümesine SENTETİK_MEDYA eklendikten sonra `synthetic.video` ilk kez
+kalibre edilebildi. Öğrenilen eşleme ham **1,0000**'i **0,3294**'e gönderiyordu:
+kümede model gerçekten ayrıştırmadığı için isotonic doğru öğrenmişti. Ama o
+sonuç alanla sınırlıydı ve küresel eşleme olarak yazılsaydı — karar eşiği 0,62
+olduğundan — **M4 sinyali bir daha hiç ateşleyemezdi.**
+
+Hata vermeden. Tam olarak köken kalibrasyonunda yaşanan sorunun aynısı.
+
+`scripts/eval/m6_fusion.py` artık eşlemenin tavanını karar eşiğiyle
+karşılaştırıyor ve ulaşamıyorsa **yazmayı reddediyor**. Üretimdeki eşlemenin
+ateşleyebildiği ayrıca testle kilitli
+(`test_fusion_kalibrasyon_kilidi.py`).
+
+---
+
 ## 7. Bilinen boşluklar
 
 - **M2 · AV senkron ve konuşmacı–yüz** kurulmadı. Ses–görüntü veri kümeleri
@@ -324,13 +365,17 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
   görüntünün doğal doku değişimini ölçüyor (`docs/metrikler/m4-ela.md`).
 - **M4 · video ve ses** kurulmadı. Video için kare çıkarımı (ffmpeg) yok; ses
   için ASVspoof üzerinde eğitim planlı.
-- **SENTETİK_MEDYA ve MANİPÜLE_MEDYA** sınıfları uçtan uca değerlendirme
-  kümesinde yok — o sınıflar M2/M4'ü gerektiriyor. Makro-F1 bu nedenle rapor
-  3.2'deki altı sınıflı hedefle doğrudan karşılaştırılamaz.
-- **`synthetic.video` kalibrasyonu** hiç ölçülmemişti; M4 çalışması ilk ölçümü
-  üretti (ECE 0,2990 → 0,0755). Noktalar `docs/metrikler/m4.md` içinde duruyor
-  ama **devreye alınmadı**: kalibrasyon M6'nın veri ürünüdür ve benimseme,
-  uçtan uca kümeye SENTETİK_MEDYA vakaları eklendikten sonra yapılmalıdır.
+- **M4 · ALAN KÖR NOKTASI (en ciddi açık).** Model üretilmiş afet
+  görsellerinin **%0,0'ını** yakalıyor (n=35, eşik 0,50). Genel yapay
+  görüntüde çalışıyor (çapraz AUC 0,7871; OpenFake sahtelerinde medyan skor
+  0,5152), kriz alanında çalışmıyor. Ayrıntı: *M4'ün ölçülmemiş yarısı* bölümü.
+- **MANİPÜLE_MEDYA** sınıfı uçtan uca değerlendirme kümesinde yok — M2'yi
+  gerektiriyor. Makro-F1 bu nedenle rapor 3.2'deki altı sınıflı hedefle
+  doğrudan karşılaştırılamaz. SENTETİK_MEDYA sınıfı **eklendi** (n=35).
+- **`synthetic.video` kalibrasyonu** hâlâ elle yazılmış noktalarla çalışıyor.
+  Ölçüm yapıldı ama **yazılmadı**: M6 kümesinden öğrenilen eşleme ham 1,0000'i
+  0,3294'e gönderiyordu ve karar eşiği 0,62 olduğu için sinyali ateşleyemez
+  hâle getiriyordu. `m6_fusion.py` artık böyle bir eşlemeyi reddediyor.
 - **8 etiketli manipülatif söylem başlığı** eğitilmedi; sistem sözlük yolunu
   kullanıyor. Provokatif çerçeveleme sınıfının düşük başarımının sebebi budur.
 - **Video hattı** ffmpeg gerektiriyor ve gecikme ölçümü yalnızca görsel/metin

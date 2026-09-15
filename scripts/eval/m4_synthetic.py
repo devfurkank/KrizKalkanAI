@@ -52,6 +52,7 @@ from krizkalkan_core.synthetic.image import MODEL_ADI, SentetikGoruntuModeli  # 
 MODEL_DIZINI = REPO_ROOT / "models" / MODEL_ADI
 RAPOR = REPO_ROOT / "docs" / "metrikler" / "m4.md"
 AFET_KORPUSU = REPO_ROOT / "data" / "external" / "provenance"
+URETILMIS_AFET = REPO_ROOT / "data" / "external" / "sentetik"
 
 #: Çapraz veri kümesi. Detektörlerin eğitiminde kullanılmadı; 2026 tarihli
 #: üreticiler içeriyor, yani gerçek bir "görülmemiş üretici" testi.
@@ -196,6 +197,45 @@ def afet_kume(sinir: int, tohum: int) -> list[Ornek]:
             )
     random.Random(tohum).shuffle(ornekler)
     return ornekler[: sinir or len(ornekler)]
+
+
+def uretilmis_afet_kume() -> list[Ornek]:
+    """Üretilmiş afet görselleri — hepsi SAHTE. Doğru-pozitif oranı için.
+
+    Bu küme, `afet_kume()`'nin eksik yarısıdır. Afet korpusu "gerçek afet
+    fotoğrafına sentetik der mi?" sorusunu ölçer; bu küme "üretilmiş bir afet
+    fotoğrafını yakalar mı?" sorusunu ölçer. İkincisi tehdit modelinin ta
+    kendisidir ve bugüne kadar hiç ölçülmemişti — veri yoktu.
+
+    Neden ayrı bir küme gerekti: çapraz veri kümesi (OpenFake) bu soruyu
+    cevaplamaz. İçeriği anime, tebrik kartı, tişört mockup'ı ve portredir;
+    kriz fotoğrafçılığı taşımaz.
+
+    Görseller gerçek korpusun biçim profiline oturtulmuştur
+    (`scripts/data/build_sentetik_korpus.py`). Oturtulmadan önce ölçüldü:
+    SADECE bayt/piksel ile ayrım AUC 0,8500 — yani ölçüm modeli değil,
+    sıkıştırma farkını ölçerdi. Oturtulduktan sonra 0,5476.
+    """
+    kayit_dosyasi = URETILMIS_AFET / "kayitlar.jsonl"
+    if not kayit_dosyasi.exists():
+        return []
+
+    ornekler: list[Ornek] = []
+    for satir in kayit_dosyasi.read_text(encoding="utf-8").splitlines():
+        if not satir:
+            continue
+        kayit = json.loads(satir)
+        yol = URETILMIS_AFET / "goruntuler" / kayit["dosya"]
+        if yol.exists():
+            ornekler.append(
+                Ornek(
+                    bayt=yol.read_bytes(),
+                    ad=kayit["dosya"],
+                    etiket=1,
+                    uretici=f"{kayit['uretici']} · {kayit['tur']}",
+                )
+            )
+    return ornekler
 
 
 # ────────────────────────── ölçüm ──────────────────────────
@@ -648,6 +688,7 @@ def _rapor_yaz(
     ayar: dict | None,
     saglamlik: dict | None,
     n_istendi: int,
+    uretilmis: dict | None = None,
 ) -> Path:
     simdi = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     satir = [
@@ -721,6 +762,42 @@ def _rapor_yaz(
             satir.append(
                 f"| {ad} | {bilgi['n']} | {bilgi['oran']:.4f} | {bilgi['ortalama_skor']:.4f} |"
             )
+
+    if uretilmis:
+        duy = uretilmis.get("duyarlilik", 0.0)
+        satir += [
+            "",
+            "## 2b. Afet alanı — DOĞRU POZİTİF (üretilmiş afet görselleri)",
+            "",
+            "Bölüm 2'nin eksik yarısı. Orada ölçülen soru *\"gerçek afet fotoğrafına",
+            'sentetik der mi?"*, burada ölçülen *"üretilmiş bir afet fotoğrafını',
+            'yakalar mı?"*. İkincisi tehdit modelinin ta kendisidir.',
+            "",
+            "**Bu ölçüm kabul kapısına dahil değildir.** Kapı yalnızca `afet_ozgulluk`",
+            'okur ve o metrik tek başına yanıltıcıdır: her görüntüye "gerçek" diyen',
+            "bozuk bir model ondan 1,0000 alır. Tablo o boşluğu görünür kılar.",
+            "",
+            "| | |",
+            "|---|---|",
+            f"| Duyarlılık (eşik {KARAR_ESIGI}) | **{duy:.4f}** |",
+            f"| n | {uretilmis['n_karar']} |",
+            f"| Çekinme oranı | {uretilmis['cekinme_orani']:.4f} |",
+            "",
+            "### 2b.1. Tür ve üretici başına",
+            "",
+            "| Üretici · tür | n | Yakalanan | Ortalama skor |",
+            "|---|---|---|---|",
+        ]
+        for ad, bilgi in sorted(uretilmis["aile"].items(), key=lambda kv: -kv[1]["n"]):
+            satir.append(
+                f"| {ad} | {bilgi['n']} | {bilgi['oran']:.4f} | {bilgi['ortalama_skor']:.4f} |"
+            )
+        satir += [
+            "",
+            "> Korpus, gerçek afet korpusunun biçim profiline oturtulmuştur. Oturtma",
+            "> öncesi ölçüldü: **sadece bayt/piksel ile ayrım AUC 0,8500** — biçim",
+            "> farkı tek başına sınıfı ele veriyordu. Oturtma sonrası 0,5476.",
+        ]
 
     satir += [
         "",
@@ -894,7 +971,12 @@ def _rapor_yaz(
 
 
 def _kart_guncelle(
-    capraz: dict, afet: dict | None, tarama: dict, saglamlik: dict | None, dizin: Path | None = None
+    capraz: dict,
+    afet: dict | None,
+    tarama: dict,
+    saglamlik: dict | None,
+    dizin: Path | None = None,
+    uretilmis: dict | None = None,
 ) -> Path | None:
     """Ölçümleri model kartına işler — kabul kapısı bu kartı okur."""
     dizin = dizin or MODEL_DIZINI
@@ -910,6 +992,7 @@ def _kart_guncelle(
         "capraz_yanlis_pozitif",
         "afet_yanlis_pozitif",
         "afet_ozgulluk",
+        "afet_duyarlilik",
     }
     kart.measurements = [m for m in kart.measurements if m.metric not in bizim]
 
@@ -967,13 +1050,33 @@ def _kart_guncelle(
             )
         )
 
+    if uretilmis:
+        # Kabul kapısının ÖLÇMEDİĞİ yarı. `afet_ozgulluk` tek başına yanıltıcıdır:
+        # her görüntüye "gerçek" diyen bozuk bir model o metrikten 1,0000 alır.
+        # Bu satır o boşluğu görünür kılar.
+        kart.measurements.append(
+            Measurement(
+                metric="afet_duyarlilik",
+                value=round(float(uretilmis.get("duyarlilik", 0.0)), 4),
+                dataset="Üretilmiş afet görselleri korpusu (tamamı sahte)",
+                n=uretilmis["n_karar"],
+                note=f"karar eşiği {KARAR_ESIGI} · kabul kapısına DAHİL DEĞİL",
+            )
+        )
+
     # Ölçülen sınırlar karta yazılır. Önce kendi ürettiğimiz satırlar silinir;
     # aksi hâlde her koşuda liste büyür.
     kart.known_limits = [
         sinir
         for sinir in kart.known_limits
         if not sinir.startswith(
-            ("Afet alanında", "Skor dağılımı", "Dönüşüm dayanıklılığı", "Genelleme açığı")
+            (
+                "Afet alanında",
+                "Skor dağılımı",
+                "Dönüşüm dayanıklılığı",
+                "Genelleme açığı",
+                "ALAN KÖR NOKTASI",
+            )
         )
     ]
     if afet:
@@ -982,6 +1085,16 @@ def _kart_guncelle(
             f"Afet alanında kullanılamaz durumda: gerçek Türk afet fotoğraflarının "
             f"%{yp * 100:.2f}'i 0,50 eşiğinde 'üretilmiş' çıkıyor (n={afet['n_karar']}). "
             "Kabul kapısı bu yüzden kapalıdır ve modül kural yolunda çalışır."
+        )
+    if uretilmis:
+        duy = float(uretilmis.get("duyarlilik", 0.0))
+        kart.known_limits.append(
+            f"ALAN KÖR NOKTASI — üretilmiş afet görsellerinin yalnızca %{duy * 100:.1f}'i "
+            f"yakalanıyor (n={uretilmis['n_karar']}, eşik 0,50). Model genel yapay "
+            "görüntüde çalışıyor (çapraz AUC ölçüldü) ama KRİZ ALANINDA çalışmıyor. "
+            "Muhtemel sebep: eğitimde afet korpusu negatif sınıfa kondu, pozitif sınıfta "
+            "hiç afet içeriği yoktu; model 'afet sahnesi → gerçek' kısayolunu öğrenmiş "
+            "olabilir. Kabul kapısı bu metriği OKUMAZ."
         )
     kart.known_limits.append(
         "Skor dağılımı dar bir banda sıkışıyor; model sıralıyor ama mutlak eşik "
@@ -1053,14 +1166,14 @@ def main() -> int:
     model = SentetikGoruntuModeli(dizin)
     onbellek: dict[str, dict] | None = None if args.onbellek_yok else _onbellek_oku()
 
-    print("═══ 1/5 çapraz veri kümesi ═══")
+    print("═══ 1/6 çapraz veri kümesi ═══")
     capraz_ornekler = capraz_kume(args.sinir, args.tohum)
     print(f"  {len(capraz_ornekler)} örnek · {len({o.uretici for o in capraz_ornekler})} aile")
     capraz_sonuclar = kos(model, capraz_ornekler, "çapraz", onbellek)
     capraz = ozetle(capraz_sonuclar)
     print(f"  AUC {capraz.get('auc', float('nan')):.4f} · çekinme {capraz['cekinme_orani']:.4f}")
 
-    print("\n═══ 2/5 afet alanı ═══")
+    print("\n═══ 2/6 afet alanı · yanlış pozitif ═══")
     afet_ornekler = afet_kume(args.afet_sinir, args.tohum)
     if afet_ornekler:
         afet_sonuclar = kos(model, afet_ornekler, "afet", onbellek)
@@ -1070,9 +1183,22 @@ def main() -> int:
         afet_sonuclar, afet = [], None
         print("  ⚠ korpus yok (python scripts/data/fetch_provenance.py) — atlanıyor")
 
+    print("\n═══ 3/6 afet alanı · DOĞRU POZİTİF ═══")
+    uretilmis_ornekler = uretilmis_afet_kume()
+    if uretilmis_ornekler:
+        uretilmis_sonuclar = kos(model, uretilmis_ornekler, "üretilmiş afet", onbellek)
+        uretilmis = ozetle(uretilmis_sonuclar)
+        print(
+            f"  duyarlılık {uretilmis.get('duyarlilik', 0):.4f} · n={uretilmis['n_karar']}"
+            f" · çekinme {uretilmis['cekinme_orani']:.4f}"
+        )
+    else:
+        uretilmis = None
+        print("  ⚠ üretilmiş afet korpusu yok (scripts/data/build_sentetik_korpus.py) — atlanıyor")
+
     tarama = esik_taramasi(capraz_sonuclar, afet_sonuclar)
 
-    print("\n═══ 3/5 tür ayrımı ═══")
+    print("\n═══ 4/6 tür ayrımı ═══")
     tur = tur_analizi(
         model,
         {
@@ -1084,7 +1210,7 @@ def main() -> int:
         onbellek,
     )
 
-    print("\n═══ 4/5 kalibrasyon ═══")
+    print("\n═══ 5/6 kalibrasyon ═══")
     ayar = kalibrasyon(capraz_sonuclar)
     if ayar and "ece_sonra" in ayar:
         print(f"  ECE {ayar['ece_once']:.4f} → {ayar['ece_sonra']:.4f} (n={ayar['n']})")
@@ -1093,16 +1219,16 @@ def main() -> int:
 
     saglamlik = None
     if not args.atla_dayaniklilik:
-        print("\n═══ 5/5 dayanıklılık ═══")
+        print("\n═══ 6/6 dayanıklılık ═══")
         alt_kume = [o for o in capraz_ornekler if o.etiket == 1][: args.dayaniklilik_sinir]
         saglamlik = dayaniklilik(model, alt_kume, onbellek)
 
     if onbellek is not None:
         _onbellek_yaz(onbellek)
 
-    rapor = _rapor_yaz(capraz, afet, tarama, tur, ayar, saglamlik, args.sinir)
+    rapor = _rapor_yaz(capraz, afet, tarama, tur, ayar, saglamlik, args.sinir, uretilmis)
     print(f"\n✓ {rapor.relative_to(REPO_ROOT)}")
-    if (kart := _kart_guncelle(capraz, afet, tarama, saglamlik, dizin)) is not None:
+    if (kart := _kart_guncelle(capraz, afet, tarama, saglamlik, dizin, uretilmis)) is not None:
         print(f"✓ {kart.relative_to(REPO_ROOT)}")
 
     ozgulluk = 1.0 - float(afet.get("yanlis_pozitif", 1.0)) if afet else 0.0

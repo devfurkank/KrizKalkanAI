@@ -289,6 +289,57 @@ bulunmadığı için başka yol yok.
 > üretirdi; kural bunu yasakladığı için nötr kaynaklara geçildi ve bu tercih
 > ölçüm raporunda da yazılı.
 
+### 6.3. Üçüncü sentetik içerik: üretilmiş afet görselleri korpusu
+
+`scripts/data/build_sentetik_korpus.py`, M4'ün **doğru-pozitif** oranını ölçmek
+için üretilmiş afet fotoğraflarından bir korpus kurar (n=35 · deprem 15 · sel 9 ·
+yangın 11 · üretici: z_image / Tongyi-MAI · 15.09.2026).
+
+Bu korpus zorunluydu. M4'ün iki yarısı vardır ve yalnızca biri ölçülmüştü:
+
+| Soru | Küme | Durum |
+|---|---|---|
+| Gerçek afet fotoğrafına "sentetik" der mi? | Wikimedia afet korpusu | ölçüldü: 9/786 |
+| Üretilmiş afet fotoğrafını yakalar mı? | — yoktu — | **ölçülemiyordu** |
+
+Çapraz veri kümesi (OpenFake) bu boşluğu dolduramaz: içeriği anime, tebrik
+kartı, tişört mockup'ı ve portredir; 16 rastgele örnek gözle incelendi, kriz
+fotoğrafçılığı taşımıyor. Kamuya açık, alan eşleşmeli bir set de yok
+(literatürdeki tek aday Forged Calamity yayınlanmamış ve CC BY-NC-SA).
+
+| Kural | Durum |
+|---|---|
+| İzole ortam | ⚠️ **Sapma.** Üretim bulut API'si üzerinden yapıldı (yerel üretim 8 GB RAM'e sığmıyor). Hiçbir çıktı yeniden yayımlanmadı; görseller yalnızca `data/` altında duruyor ve `.gitignore` kapsamında |
+| İşaretleme (a) görünür filigran | ⚠️ **Sapma — bilinçli.** Filigran ölçümü geçersiz kılar: pikselleri değiştirir ve dedektöre sınıfı doğrudan ele verir. Ölçüm kümesi için uygulanamaz |
+| İşaretleme (c) C2PA "AI-generated" | ⚠️ **Sapma — bilinçli.** C2PA işareti eklenirse sistem sınıfı belgesel yoldan kurar ve M4'ün payı hiç ölçülmez. Tam olarak ölçmek istediğimiz şeyi yok eder |
+| İşaretleme (d) `SYNTH_` öneki | ✅ Her dosya `SYNTH_` ile başlar |
+| Gerçek kişi yasağı | ✅ Hiçbir komutta gerçek kişi, siyasetçi veya kurum adı yok. Görsellerdeki insanlar var olmayan kişiler |
+| Mağdur görüntüsü yasağı | ✅ Gerçek mağdur görüntüsü KULLANILMADI. Sahneler bütünüyle kurgu; gerçek bir olayla ilişkilendirilmiyor ve hiçbir kayıt gerçek olay adı taşımıyor |
+| Dağıtım yasağı | ✅ `data/external/sentetik/` `.gitignore` altında; depoya yalnızca komut bankası ve üretim betiği girer |
+| Kayıt | ✅ `data/external/sentetik/kayitlar.jsonl` her görselin komutunu, üreticisini, iş kimliğini ve biçim değerlerini taşır. Komut bankası: `scripts/data/kumeler/sentetik_afet_komutlari.json` |
+| Danışman onayı | ⏳ **Alınmadı — iki bilinçli sapma (filigran ve C2PA) yazılı onay gerektirir** |
+
+> **Neden filigransızlık burada kuralın ihlali değil, amacının korunmasıdır.**
+> Kuralın amacı sentetik içeriğin gerçek sanılmasını ve dışarı sızmasını
+> önlemektir. Bu korpusta o amaç üç ayrı katmanla sağlanıyor: dosya adı öneki,
+> her dosyayı sentetik ilan eden kayıt dosyası ve dağıtım yasağı. Filigran ise
+> amacı korumaz, ölçümü yok eder — çünkü filigranın kendisi dedektörün
+> arayacağı işaretin ta kendisi olur.
+
+**Biçim karıştırıcısı ve düzeltilmesi.** İlk kurulumda görseller sabit JPEG
+kalitesiyle kaydedildi. Ölçüldü: **sadece bayt/piksel ile ayrım AUC 0,8500** —
+üretilmiş görseller daha az yüksek-frekans detay taşıdığı için sistematik
+olarak daha küçük dosyalar üretiyordu. Bu hâliyle ölçüm modelin yeteneğini
+değil, dosya boyutu farkını ölçerdi. Düzeltme: her görselin hedef genişliği ve
+bayt/pikseli gerçek korpusun ampirik dağılımından çekiliyor ve JPEG kalitesi o
+hedefi tutturacak şekilde aranıyor. Düzeltme sonrası **AUC 0,5005**.
+
+**Kadraj kusuru.** 35 görselin 7'sinde komuttaki "candid/unstaged" ifadesi ön
+plana el yerleştirdi. Kayıtta `cerceve_kusuru` alanıyla işaretlidirler ve
+ölçümde ayrı raporlanırlar.
+
+---
+
 ---
 
 ## 7. Kötüye kullanım senaryoları

@@ -33,6 +33,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "libs" / "krizkalkan-core" / "src"))
 
 from krizkalkan_core.fusion.calibration import expected_calibration_error  # noqa: E402
+from krizkalkan_core.fusion.engine import (  # noqa: E402
+    SAHNE_CELISKI_ESIGI,
+    SENTETIK_KANIT_ESIGI,
+)
 from krizkalkan_core.pipeline import AnalysisPipeline  # noqa: E402
 from krizkalkan_core.taxonomy import Verdict  # noqa: E402
 
@@ -53,6 +57,12 @@ CIKTI = REPO_ROOT / "models" / "m6_fusion"
 SINYAL_HEDEFI: dict[str, Verdict] = {
     "text.manipulative": Verdict.PROVOKATIF_CERCEVELEME,
     "knowledge.verdict": Verdict.DOGRULANMAMIS_IDDIA,
+    # `synthetic.video` bugüne kadar HİÇ kalibre edilmemişti: elle yazılmış
+    # yedek noktalarla çalışıyordu (fusion/calibration.py · VARSAYILAN_NOKTALAR)
+    # çünkü kümede üretilmiş medya yoktu. Üretilmiş afet korpusu eklendikten
+    # sonra ölçüm mümkün oldu. Hedef sınıf doğrudan SENTETİK_MEDYA'dır: sinyalin
+    # iddiası tam olarak budur.
+    "synthetic.video": Verdict.SENTETIK_MEDYA,
 }
 
 #: Sınıf etiketiyle değil, vakanın META VERİSİYLE tanımlanan hedefler.
@@ -78,6 +88,22 @@ META_COZUCU = {"sahne_uyusmazligi": _sahne_uyusmazligi}
 
 #: Kalibrasyon eğrisinde tutulacak azami kırılım noktası sayısı.
 AZAMI_NOKTA = 12
+
+#: Sinyalin karara girebilmesi için ulaşması gereken kalibre skor.
+#:
+#: Öğrenilmiş bir eşleme bu değere HİÇ ulaşamıyorsa sinyal üretimde ateşleyemez
+#: hâle gelir — kalibrasyon değil, sessiz bir devre kesme olur. Yaşandı:
+#: `synthetic.video` için M6 kümesinden öğrenilen eşleme ham 1,0000'i 0,3294'e
+#: gönderiyordu; eşik 0,62 olduğu için sinyal bir daha asla SENTETİK_MEDYA
+#: kuramazdı. İsotonic doğru öğrenmişti — kümede ayrışma yoktu — ama o sonuç
+#: alanla sınırlıydı ve küresel eşleme olarak yazılması modülü kapatırdı.
+#:
+#: Aynı hata köken sinyalinde de yaşanmıştı (bkz. `koken_kalibrasyonu`). Bu
+#: denetim o dersin genelleştirilmiş hâlidir.
+KARAR_ESIKLERI: dict[str, float] = {
+    "synthetic.video": SENTETIK_KANIT_ESIGI,
+    "multimodal.scene_claim": SAHNE_CELISKI_ESIGI,
+}
 
 
 def _medya_yolu(medya: str | None) -> str | None:
@@ -213,12 +239,34 @@ def kalibre_et(sonuclar: list[dict], tohum: int) -> dict[str, dict]:
             [(float(p), bool(e)) for p, e in zip(model.predict(ham[olc]), etiket[olc], strict=True)]
         )
 
+        noktalar = isotonic_noktalar(ham.tolist(), etiket.tolist())
+
+        # Sinyali ateşleyemez hâle getiren eşleme YAZILMAZ.
+        tavan = max(y for _, y in noktalar)
+        esik = KARAR_ESIKLERI.get(anahtar)
+        if esik is not None and tavan < esik:
+            print(
+                f"  {anahtar:22s} n={len(ciftler):3d} poz={int(etiket.sum()):3d}  "
+                f"ECE {once:.4f} → {sonra:.4f}"
+            )
+            print(
+                f"    🔴 YAZILMADI: eşleme tavanı {tavan:.4f} < karar eşiği {esik:.2f}. "
+                "Bu eşleme üretime girerse sinyal bir daha ateşleyemez — kalibrasyon "
+                "değil, sessiz devre kesme olur."
+            )
+            print(
+                "    → Sinyal elle yazılmış yedek noktalarla çalışmaya devam eder. "
+                "Gerekçe: kümede bu sinyalin ayrıştırdığı vaka yok "
+                "(docs/metrikler/m6.md · kapsam sınırı)."
+            )
+            continue
+
         cikti[anahtar] = {
             "n": len(ciftler),
             "pozitif": int(etiket.sum()),
             "ece_once": once,
             "ece_sonra": sonra,
-            "noktalar": isotonic_noktalar(ham.tolist(), etiket.tolist()),
+            "noktalar": noktalar,
         }
         print(
             f"  {anahtar:22s} n={len(ciftler):3d} poz={int(etiket.sum()):3d}  "
@@ -459,10 +507,18 @@ def rapor_yaz(kalibrasyon: dict, siniflandirma: dict, n: int) -> Path:
         "",
         "## Kapsam sınırı",
         "",
-        "SENTETİK_MEDYA ve MANİPÜLE_MEDYA sınıfları kümede YOKTUR: bu sınıflar",
-        "M4 ve M2 modüllerini gerektirir ve o modüller henüz kurulmadı. Makro-F1",
-        "bu nedenle 7 sınıfın değil, veri bulunan sınıfların ortalamasıdır ve",
-        "rapor 3.2'deki 6 sınıflı hedefle doğrudan karşılaştırılamaz.",
+        "MANİPÜLE_MEDYA sınıfı kümede YOKTUR: M2'nin ses/görüntü oynama",
+        "dedektörleri kurulmadı. Makro-F1 bu nedenle 7 sınıfın değil, veri",
+        "bulunan sınıfların ortalamasıdır ve rapor 3.2'deki 6 sınıflı hedefle",
+        "doğrudan karşılaştırılamaz.",
+        "",
+        "SENTETİK_MEDYA vakaları ÜRETİLMİŞ afet görselleridir (bkz.",
+        "`scripts/data/build_sentetik_korpus.py`). Metinleri, sahne uyumlu TEMİZ",
+        "vakalarıyla aynı şablondandır: iki sınıf arasındaki tek fark görüntünün",
+        "gerçek mi üretilmiş mi olduğudur, dolayısıyla ölçülen şey M4'ün payıdır.",
+        "Görseller gerçek korpusun biçim profiline (JPEG, ~0,29 bayt/piksel,",
+        "genişlik ≤960) indirgenmiştir; aksi hâlde model 'PNG = üretilmiş'",
+        "kısayolunu kullanır ve ölçüm artefakta döner.",
         "",
         "Görüntü tabanlı vakalarda metin şablondan üretilmiştir; o vakaların",
         "hedefi köken sinyalini yalıtmaktır, metin motorunu ölçmek değil.",

@@ -10,7 +10,7 @@ raporda öyle beyan edilir:
     DOĞRULANMAMIŞ_İDDİA  ✓ DMM'de yalanlanmış gerçek iddia metinleri
     TEMİZ (metin)        ✓ DMM tekzip metinleri + elle yazılmış resmî duyurular
     PROVOKATİF_ÇERÇEVELEME ✓ elle yazılmış metinler
-    SENTETİK_MEDYA       ✗ M4 yok — üretilmiş medya kümesi gerekir
+    SENTETİK_MEDYA       ✓ üretilmiş afet görselleri korpusu (data/external/sentetik)
     MANİPÜLE_MEDYA       ✗ M2 yok — ses/görüntü oynanmış içerik gerekir
 
 Görüntü tabanlı çiftlerde metin şablondan üretilir ve bu raporda belirtilir:
@@ -37,6 +37,7 @@ GORUNTU_DIZINI = REPO_ROOT / "data" / "external" / "provenance" / "goruntuler"
 TUTULAN = REPO_ROOT / "models" / "m1_provenance" / "tutulan.jsonl"
 PROVENANCE_KAYIT = REPO_ROOT / "data" / "external" / "provenance" / "kayitlar.jsonl"
 METINLER = REPO_ROOT / "scripts" / "eval" / "kumeler" / "m6_metinler.json"
+SENTETIK = REPO_ROOT / "data" / "external" / "sentetik"
 CIKTI = REPO_ROOT / "data" / "processed" / "m6_uctan_uca.jsonl"
 
 #: Görüntü vakalarında kullanılan metin şablonları. İddia edilen şehir
@@ -192,6 +193,42 @@ def main() -> int:
                 "iddia_edilen_tur": tur,
             }
         )
+
+    # ── Sentetik medya (üretilmiş afet görselleri) ──
+    #
+    # Metin, sahne uyumlu TEMİZ vakalarıyla AYNI şablondan gelir ve bu bilinçlidir:
+    # iki sınıf arasındaki tek fark görüntünün gerçek mi üretilmiş mi olduğudur.
+    # Şablon farklı olsaydı metin motoru da ayrıma katkı verir ve M4'ün payı
+    # ölçülemez hâle gelirdi. Konum İDDİASI YOKTUR: şehir adı eklemek köken ve
+    # bilgi havuzu sinyallerini devreye sokar ve sınıfı M4 dışındaki bir yoldan
+    # kurabilirdi.
+    sentetik_kayit = SENTETIK / "kayitlar.jsonl"
+    if sentetik_kayit.exists():
+        uretilmis = [
+            k
+            for satir in sentetik_kayit.read_text(encoding="utf-8").splitlines()
+            if satir
+            and (k := json.loads(satir))
+            and (SENTETIK / "goruntuler" / k["dosya"]).exists()
+            and k.get("tur") in TUR_SABLONLARI
+        ]
+        rastgele.shuffle(uretilmis)
+        for kayit in uretilmis[: args.medya_basina]:
+            vakalar.append(
+                {
+                    "id": f"m6-sm-{len(vakalar):04d}",
+                    "sinif": Verdict.SENTETIK_MEDYA.value,
+                    "metin": TUR_SABLONLARI[kayit["tur"]],
+                    "medya": _goreli(SENTETIK / "goruntuler" / kayit["dosya"]),
+                    "medya_turu": "image",
+                    "kaynak": f"üretilmiş · {kayit['uretici']}",
+                    "gercek_tur": kayit["tur"],
+                    "iddia_edilen_tur": kayit["tur"],
+                    "uretici": kayit["uretici"],
+                }
+            )
+    else:
+        print("⚠️ üretilmiş afet korpusu yok; SENTETİK_MEDYA sınıfı atlandı")
 
     # ── Metin tabanlı sınıflar ──
     dmm = [k for k in bilgi.records() if k.record_id.startswith("DMM-B")]

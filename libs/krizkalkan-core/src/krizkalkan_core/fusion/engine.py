@@ -30,6 +30,14 @@ from krizkalkan_core.taxonomy import (
 #: artırırken duyarlılıktan beş puan götürüyor.
 SAHNE_CELISKI_ESIGI = 0.60
 
+#: Sentetik kanıtın SENTETİK_MEDYA kurması için gereken kalibre skor.
+#:
+#: Adlandırılmış olması şart: `scripts/eval/m6_fusion.py` bu değeri okuyup
+#: öğrenilmiş bir kalibrasyonun sinyali ateşleyemez hâle getirip getirmediğini
+#: denetler. Eşik burada, denetim orada ayrı sabit olsaydı ikisi sessizce
+#: ayrı düşerdi.
+SENTETIK_KANIT_ESIGI = 0.62
+
 
 def apply_calibration(signals: list[Signal]) -> list[Signal]:
     """Her sinyalin skorunu kalibre eder; ham skoru saklar."""
@@ -114,7 +122,7 @@ def fuse(
     # (n=592, OpenFake): gerçek görüntülerde yanlış pozitif %0,0
     # (docs/metrikler/m4-ustveri.md). Bu yüzden C2PA ile aynı torbadadır.
     synthetic_evidence = max(synth_video, synth_audio, c2pa, ustveri)
-    if synthetic_evidence >= 0.62:
+    if synthetic_evidence >= SENTETIK_KANIT_ESIGI:
         return (
             Verdict.SENTETIK_MEDYA,
             min(0.96, synthetic_evidence),
