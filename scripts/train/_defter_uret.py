@@ -16,6 +16,15 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CIKTI = REPO_ROOT / "notebooks" / "m4_colab.ipynb"
+OLAY_AYRIMI = json.dumps(
+    json.loads(
+        (REPO_ROOT / "scripts" / "data" / "kumeler" / "afet_olay_ayrimi.json").read_text(
+            encoding="utf-8"
+        )
+    ),
+    ensure_ascii=False,
+    indent=1,
+)
 
 
 def md(metin: str) -> dict:
@@ -109,6 +118,14 @@ TOHUM         = 20260912
 AZAMI_URETILMIS = 6000
 AZAMI_GERCEK    = 6000
 
+# ── ÇİFT YÖNLÜ KABUL KAPISI ──
+#
+# Tek yönlü kapı (yalnızca özgüllük) bozuk bir modeli ödüllendirir: her
+# görüntüye "gerçek" diyen model özgüllükten 1,0000 alır. Önceki sürüm tam da
+# o yöne kaymıştı — özgüllük 0,9885, duyarlılık 0,0000 — ve kapı göremedi.
+KAPI_OZGULLUK   = 0.95   # tutulan OLAYLARDA yanlış pozitif ≤ %5
+KAPI_DUYARLILIK = 0.50   # tutulan ÜRETİCİLERDE yakalama ≥ %50
+
 import os, random, json, numpy as np, torch
 from pathlib import Path
 
@@ -128,14 +145,27 @@ sahada göreceği içeriğin ta kendisi. Negatif sınıfa katılıyor.
 Yerel depodan yükle:
 
 ```bash
-cd "KrizKalkanAI" && zip -r afet_korpusu.zip data/external/provenance/goruntuler
+cd "KrizKalkanAI/data/external/provenance" && zip -r ~/Desktop/afet_korpusu.zip goruntuler kayitlar.jsonl
 ```
 
-Sonra aşağıdaki hücrede dosyayı seç.
+`kayitlar.jsonl` ZORUNLUDUR: olay bazlı ayrım ondan okunur.
+
+### Neden olay bazlı ayrım
+
+Önceki koşu korpusun **%80'ini rastgele** eğitime koyuyordu, ama `afet_ozgulluk`
+korpusun **tamamında** ölçülüyordu — yani kabul kapısının baktığı fotoğrafların
+çoğunu model eğitimde görmüştü. 0,9885 iyimser bir sayıydı.
+
+Rastgele bölme düzeltse bile yetmezdi: aynı olayın fotoğrafları birbirine çok
+benzer, rastgele bölmede aynı enkazın başka karesi hem eğitimde hem ölçümde
+çıkar. Bu yüzden ayrım **olay** düzeyinde yapılır ve depoda sabittir.
 """),
-    kod("""
+    kod(f"""
 from google.colab import files
-import zipfile
+import zipfile, json
+
+OLAY_AYRIMI = {OLAY_AYRIMI}
+TUTULAN_OLAYLAR = set(OLAY_AYRIMI["tutulan_olaylar"])
 
 AFET_DIZINI = CALISMA / "afet"
 if not AFET_DIZINI.exists():
@@ -145,9 +175,91 @@ if not AFET_DIZINI.exists():
     with zipfile.ZipFile(ad) as z:
         z.extractall(AFET_DIZINI)
 
-afet_yollari = sorted(p for p in AFET_DIZINI.rglob("*") if p.suffix.lower() in {".jpg", ".jpeg", ".png"})
-print(f"afet korpusu: {len(afet_yollari)} görüntü")
-assert afet_yollari, "korpus boş — zip içeriğini kontrol et"
+_kayit = next(AFET_DIZINI.rglob("kayitlar.jsonl"), None)
+assert _kayit, "kayitlar.jsonl yok — zip'i goruntuler + kayitlar.jsonl ile kurun"
+_kok = _kayit.parent
+_korpus = [json.loads(x) for x in _kayit.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+afet_egitim, afet_tutulan = [], []
+for _k in _korpus:
+    _p = _kok / "goruntuler" / _k["dosya"]
+    if not _p.exists():
+        continue
+    (afet_tutulan if _k["olay"] in TUTULAN_OLAYLAR else afet_egitim).append(_p)
+
+print(f"afet korpusu: {{len(_korpus)}} kayıt")
+print(f"  EĞİTİM  : {{len(afet_egitim)}}")
+print(f"  TUTULAN : {{len(afet_tutulan)}}  ← kabul kapısı YALNIZCA burada ölçülür")
+assert afet_egitim and afet_tutulan, "olay ayrımı boş küme üretti"
+assert not (set(afet_egitim) & set(afet_tutulan)), "ayrım sızdırıyor"
+for _o in sorted(TUTULAN_OLAYLAR):
+    print(f"    tutulan: {{_o}}")
+"""),
+    md("""
+## 2b · Üretilmiş afet korpusu — kör noktayı kapatan veri
+
+Bu, önceki modelin **eksik olan pozitif sınıfıdır.** Eğitimde afet içeriği
+yalnızca "gerçek" tarafında bulunuyordu; model "afet sahnesi → gerçek"
+kısayolunu öğrendi ve üretilmiş afet görsellerini yakalayamadı.
+
+Korpus `notebooks/m4_sentetik_uretim.ipynb` ile üretildi. **Rol ayrımı
+kritiktir ve burada uygulanır:**
+
+| Üretici | Rol | n |
+|---|---|---|
+| SANA 1.6B · SDXL · hizalı VAE · hizalı img2img | **eğitim** | 1700 |
+| PixArt-Σ · z_image | **TUTULAN** | 285 |
+
+Tutulan üreticiler eğitime **girmez**; duyarlılık yalnızca orada ölçülür, yani
+ölçülen şey *görülmemiş üreticiye aktarım* olur.
+
+Yerelde hazırlayın:
+
+```bash
+cd "KrizKalkanAI/data/external/sentetik" && zip -r ~/Desktop/sentetik_korpus.zip goruntuler kayitlar.jsonl
+```
+"""),
+    kod("""
+SENTETIK_DIZINI = CALISMA / "sentetik"
+if not SENTETIK_DIZINI.exists():
+    print("sentetik_korpus.zip dosyasını seç…")
+    yuklenen = files.upload()
+    ad = next(iter(yuklenen))
+    with zipfile.ZipFile(ad) as z:
+        z.extractall(SENTETIK_DIZINI)
+
+_skayit = next(SENTETIK_DIZINI.rglob("kayitlar.jsonl"), None)
+assert _skayit, "sentetik kayitlar.jsonl yok"
+_skok = _skayit.parent
+_sentetik = [json.loads(x) for x in _skayit.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+sentetik_egitim, sentetik_tutulan = [], []
+tutulan_uretici = {}
+for _k in _sentetik:
+    _p = _skok / "goruntuler" / _k["dosya"]
+    if not _p.exists():
+        continue
+    if _k["rol"] == "tutulan":
+        sentetik_tutulan.append(_p)
+        tutulan_uretici.setdefault(_k["kod"] if "kod" in _k else _k["uretici"], []).append(_p)
+    else:
+        sentetik_egitim.append(_p)
+
+print(f"üretilmiş afet korpusu: {len(_sentetik)} kayıt")
+print(f"  EĞİTİM  : {len(sentetik_egitim)}  → pozitif sınıfa katılacak")
+print(f"  TUTULAN : {len(sentetik_tutulan)} → duyarlılık YALNIZCA burada ölçülür")
+for _u, _l in sorted(tutulan_uretici.items()):
+    print(f"    {_u}: {len(_l)}")
+assert sentetik_egitim and sentetik_tutulan, "rol ayrımı boş küme üretti"
+assert not (set(sentetik_egitim) & set(sentetik_tutulan)), "rol ayrımı sızdırıyor"
+
+# Bir üretici iki rolde olamaz — olursa ölçülen şey genelleme değil ezber olur.
+_roller = {}
+for _k in _sentetik:
+    _roller.setdefault(_k["uretici"], set()).add(_k["rol"])
+_bozuk = {u: r for u, r in _roller.items() if len(r) > 1}
+assert not _bozuk, f"rol ayrımı bozuk: {_bozuk}"
+print("✓ üretici bazlı rol ayrımı sağlam")
 """),
     md("""
 ## 3 · Eğitim verisi
@@ -289,29 +401,53 @@ class GoruntuKumesi(Dataset):
         return self.son(im), etiket
 """),
     kod("""
-# Kümeleri kur — afet korpusu NEGATİFLERE katılıyor
+# ── Kümeleri kur ──
+#
+# İKİ AYRIM KURALI, ikisi de pazarlığa kapalı:
+#   1. Afet fotoğrafları OLAY bazında ayrılır; tutulan olaylar eğitime girmez.
+#   2. Üretilmiş afet görselleri ÜRETİCİ bazında ayrılır; tutulan üreticiler
+#      eğitime girmez.
+# İkisi de ölçümün "görülmemiş" olmasını garanti eder.
 rastgele = random.Random(TOHUM)
 rastgele.shuffle(uretilmis_yollari); rastgele.shuffle(gercek_yollari)
 
 uretilmis = [(p, 1) for p in uretilmis_yollari[:AZAMI_URETILMIS]]
 gercek    = [(p, 0) for p in gercek_yollari[:AZAMI_GERCEK]]
 
-# Afet korpusu: %80 eğitim, %20 doğrulama — dağıtım alanı iki tarafta da olmalı
-afet = [(p, 0) for p in afet_yollari]
-rastgele.shuffle(afet)
-afet_sinir = int(len(afet) * 0.8)
+# YENİ: üretilmiş afet görselleri POZİTİF sınıfa katılıyor.
+# Önceki modelin eksiği tam olarak buydu.
+sentetik_afet = [(p, 1) for p in sentetik_egitim]
 
-tum = uretilmis + gercek
+# Gerçek afet fotoğrafları NEGATİF sınıfta — yalnızca eğitim olaylarından.
+afet = [(p, 0) for p in afet_egitim]
+rastgele.shuffle(afet)
+afet_bol = int(len(afet) * 0.85)   # küçük bir kısmı doğrulamaya
+
+tum = uretilmis + gercek + sentetik_afet
 rastgele.shuffle(tum)
 bol = int(len(tum) * 0.9)
 
-egitim_ogeleri    = tum[:bol] + afet[:afet_sinir]
-dogrulama_ogeleri = tum[bol:] + afet[afet_sinir:]
+egitim_ogeleri    = tum[:bol] + afet[:afet_bol]
+dogrulama_ogeleri = tum[bol:] + afet[afet_bol:]
 rastgele.shuffle(egitim_ogeleri); rastgele.shuffle(dogrulama_ogeleri)
 
-print(f"eğitim    : {len(egitim_ogeleri):6d}  (üretilmiş {sum(e for _, e in egitim_ogeleri)})")
+_poz = sum(e for _, e in egitim_ogeleri)
+_neg = len(egitim_ogeleri) - _poz
+print(f"eğitim    : {len(egitim_ogeleri):6d}  (üretilmiş {_poz} · gerçek {_neg})")
 print(f"doğrulama : {len(dogrulama_ogeleri):6d}  (üretilmiş {sum(e for _, e in dogrulama_ogeleri)})")
-print(f"afet korpusu eğitimde {afet_sinir}, doğrulamada {len(afet) - afet_sinir}")
+print(f"  üretilmiş afet (yeni) : {len(sentetik_afet)}")
+print(f"  gerçek afet (eğitim)  : {len(afet)}")
+print(f"  gerçek afet (TUTULAN) : {len(afet_tutulan)}  ← eğitime girmedi")
+print(f"  üretilmiş (TUTULAN)   : {len(sentetik_tutulan)}  ← eğitime girmedi")
+
+# ── Sınıf ağırlığı ──
+#
+# Pozitif sınıf negatiften kalabalık. Az örneklemek veri atmak olurdu; bunun
+# yerine kayıp fonksiyonu dengeleniyor. Ağırlık ölçülen orandan türetilir,
+# elle seçilmez.
+_agirlik = torch.tensor([_poz / _neg, 1.0], dtype=torch.float32)
+_agirlik = _agirlik / _agirlik.mean()
+print(f"sınıf ağırlığı (gerçek, üretilmiş): {_agirlik.tolist()}")
 
 egitim_yukleyici = DataLoader(GoruntuKumesi(egitim_ogeleri, True), batch_size=YIGIN,
                               shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -371,7 +507,7 @@ optimizer = AdamW([p for p in model.parameters() if p.requires_grad],
                   lr=OGRENME_ORANI, weight_decay=0.01)
 plan = torch.optim.lr_scheduler.OneCycleLR(
     optimizer, max_lr=OGRENME_ORANI, total_steps=EPOK * len(egitim_yukleyici), pct_start=0.1)
-kayip_fn = nn.CrossEntropyLoss(label_smoothing=0.05)
+kayip_fn = nn.CrossEntropyLoss(label_smoothing=0.05, weight=_agirlik.cuda())
 olcekleyici = GradScaler("cuda")
 
 
@@ -467,14 +603,37 @@ capraz_skor = skorla(capraz_bayt, bayt_mi=True)
 capraz_etiket = np.array(capraz_etiket)
 capraz_auc = roc_auc_score(capraz_etiket, capraz_skor)
 
-# ── Afet alanı: tamamı gerçek ──
-afet_skor = skorla(afet_yollari)
+# ── Afet alanı · YANLIŞ POZİTİF · yalnızca TUTULAN olaylarda ──
+#
+# Eğitimde görülen fotoğrafta ölçmek, kapıyı kendi kendine geçirmek olurdu.
+afet_skor = skorla(afet_tutulan)
 afet_yp = float((afet_skor >= 0.5).mean())
 afet_ozgulluk = 1.0 - afet_yp
 
-print(f"çapraz AUC        : {capraz_auc:.4f}   (hedef ≥ 0,72)")
-print(f"afet yanlış pozitif: {afet_yp:.4f}")
-print(f"AFET ÖZGÜLLÜĞÜ    : {afet_ozgulluk:.4f}   (KABUL KAPISI ≥ 0,95)")
+# ── Afet alanı · DOĞRU POZİTİF · yalnızca TUTULAN üreticilerde ──
+#
+# Kapının eksik yarısı. `afet_ozgulluk` tek başına yanıltıcıdır: her görüntüye
+# "gerçek" diyen bozuk bir model ondan 1,0000 alır. Önceki model tam da o yöne
+# kaymıştı ve kapı bunu göremiyordu.
+sentetik_skor = skorla(sentetik_tutulan)
+afet_duyarlilik = float((sentetik_skor >= 0.5).mean())
+
+print(f"çapraz AUC         : {capraz_auc:.4f}   (hedef ≥ 0,72)")
+print()
+print(f"AFET ÖZGÜLLÜĞÜ     : {afet_ozgulluk:.4f}   (KAPI ≥ {KAPI_OZGULLUK})   "
+      f"n={len(afet_tutulan)} tutulan olay")
+print(f"AFET DUYARLILIĞI   : {afet_duyarlilik:.4f}   (KAPI ≥ {KAPI_DUYARLILIK})   "
+      f"n={len(sentetik_tutulan)} tutulan üretici")
+print()
+for _u, _l in sorted(tutulan_uretici.items()):
+    _s = skorla(_l)
+    print(f"  {_u:16s} n={len(_l):4d}  duyarlılık {float((_s >= 0.5).mean()):.4f}")
+print()
+_gecti = afet_ozgulluk >= KAPI_OZGULLUK and afet_duyarlilik >= KAPI_DUYARLILIK
+print(f"ÇİFT YÖNLÜ KAPI    : {'GEÇTİ' if _gecti else 'GEÇEMEDİ'}")
+if not _gecti:
+    print("  → Tek yön yetmez. Özgüllük yüksek + duyarlılık düşük = 'her şeye gerçek'")
+    print("    diyen bir model demektir ve önceki sürümün hatası buydu.")
 print()
 print(f"üretilmiş medyan {np.median(capraz_skor[capraz_etiket==1]):.4f} · "
       f"gerçek medyan {np.median(capraz_skor[capraz_etiket==0]):.4f} · "
@@ -574,9 +733,14 @@ def onnx_skorla(yollar):
         skorlar.extend((e / e.sum(1, keepdims=True))[:, 0].tolist())
     return np.array(skorlar)
 
-afet_skor_onnx = onnx_skorla(afet_yollari)
+# Karta yazılan sayı, DAĞITILAN dosyadan ölçülmelidir. Daha önce torch ölçülüp
+# ONNX dağıtılıyordu; raporlanan sayı ile dağıtılan dosya farklı şeylerdi.
+afet_skor_onnx = onnx_skorla(afet_tutulan)
 afet_ozgulluk = 1.0 - float((afet_skor_onnx >= 0.5).mean())
-print(f"ONNX ile afet özgüllüğü: {afet_ozgulluk:.4f}  (karta bu yazılacak)")
+sentetik_skor_onnx = onnx_skorla(sentetik_tutulan)
+afet_duyarlilik = float((sentetik_skor_onnx >= 0.5).mean())
+print(f"ONNX · afet özgüllüğü  : {afet_ozgulluk:.4f}  (n={len(afet_tutulan)} tutulan olay)")
+print(f"ONNX · afet duyarlılığı: {afet_duyarlilik:.4f}  (n={len(sentetik_tutulan)} tutulan üretici)")
 """),
     md("""
 ## 10 · Ön işleme ve model kartı
@@ -597,7 +761,9 @@ import datetime
 
 lisans = ("MIT (GenImage) · CC BY-SA 4.0 (Wikimedia afet korpusu)" if MODEL_SURUMU == "temiz"
           else "CC BY-NC 4.0 — OpenFake eğitime katıldı, TİCARİ KULLANIMA KAPALI")
-egitim_verisi = ["jhutter2/281_Genimage (MIT) · ADM, SD 1.5, wukong + ImageNet gerçekleri",
+egitim_verisi = ["jhutter2/281_Genimage (CC BY-NC-SA 4.0 — ayna 'MIT' diyor, özgün GenImage lisansı NC-SA) · ADM, SD 1.5, wukong + ImageNet gerçekleri",
+                 f"Üretilmiş afet korpusu · {len(sentetik_egitim)} görsel pozitif sınıfta "
+                 "(SANA 1.6B Apache-2.0 · SDXL OpenRAIL++-M · hizalı VAE/img2img)",
                  f"Wikimedia Commons Türkiye afet korpusu · {afet_sinir} görüntü negatif sınıfta"]
 if MODEL_SURUMU == "genis":
     egitim_verisi.append("ComplexDataLab/OpenFakeTiny core/train (CC BY-NC 4.0) · 2026 üreticileri")
@@ -621,11 +787,19 @@ kart = {
                         "egitilebilir_parametre": f"{egitilir/1e6:.2f}M",
                         "niceleme": "yok — int8 kararı bozuyor, fp32 dağıtılıyor",
                         "kalibrasyon_sicakligi": round(float(en_iyi_t), 3)},
-    "split_strategy": "Üretici bazlı ayrım; değerlendirme kümesi (OpenFake core/test) eğitime hiç girmedi",
+    "split_strategy": ("ÇİFT ayrım: (1) afet fotoğrafları OLAY bazında — tutulan olaylar "
+                   "eğitime girmedi, özgüllük yalnızca orada ölçüldü; (2) üretilmiş afet "
+                   "görselleri ÜRETİCİ bazında — PixArt-Σ ve z_image eğitime girmedi, "
+                   "duyarlılık yalnızca orada ölçüldü. OpenFake core/test de eğitime girmedi."),
     "measurements": [
+        {"metric": "afet_duyarlilik", "value": round(afet_duyarlilik, 4),
+         "dataset": "Üretilmiş afet görselleri · TUTULAN üreticiler (PixArt-Σ, z_image)",
+         "n": len(sentetik_tutulan),
+         "note": f"karar eşiği 0.5 · çift yönlü kapının ikinci ölçütü (≥ {KAPI_DUYARLILIK})"},
         {"metric": "afet_ozgulluk", "value": round(afet_ozgulluk, 4),
          "dataset": "Wikimedia Commons Türkiye afet korpusu (tamamı gerçek)",
-         "n": len(afet_yollari), "note": "karar eşiği 0.5 · kabul kapısının ölçütü"},
+         "n": len(afet_tutulan),
+         "note": f"karar eşiği 0.5 · TUTULAN olaylarda ölçüldü · kapı ≥ {KAPI_OZGULLUK}"},
         {"metric": "capraz_auc", "value": round(float(capraz_auc), 4),
          "dataset": "ComplexDataLab/OpenFake · core/test-00000-of-00013.parquet",
          "n": len(capraz_bayt), "note": "eğitimde kullanılmadı"},
@@ -650,8 +824,16 @@ kart = {
 }
 (CIKTI / "kart.json").write_text(json.dumps(kart, ensure_ascii=False, indent=2), encoding="utf-8")
 
-print(f"KABUL KAPISI: afet_ozgulluk {afet_ozgulluk:.4f} — "
-      f"{'GEÇTİ ✓' if afet_ozgulluk >= 0.95 else 'GEÇEMEDİ ✗'}")
+_oz_ok = afet_ozgulluk >= KAPI_OZGULLUK
+_du_ok = afet_duyarlilik >= KAPI_DUYARLILIK
+print("ÇİFT YÖNLÜ KABUL KAPISI")
+print(f"  özgüllük   {afet_ozgulluk:.4f} ≥ {KAPI_OZGULLUK}  {'✓' if _oz_ok else '✗'}")
+print(f"  duyarlılık {afet_duyarlilik:.4f} ≥ {KAPI_DUYARLILIK}  {'✓' if _du_ok else '✗'}")
+print(f"  SONUÇ: {'GEÇTİ ✓' if _oz_ok and _du_ok else 'GEÇEMEDİ ✗'}")
+if _oz_ok and not _du_ok:
+    print("  ⚠ Klasik tuzak: model 'her şeye gerçek' diyerek özgüllüğü geçiyor.")
+    print("    Üretilmiş afet görsellerinin payını artırmayı ya da hizalı")
+    print("    sahtelerin ağırlığını yükseltmeyi deneyin.")
 print(f"çapraz AUC  : {capraz_auc:.4f} — {'geçti ✓' if capraz_auc >= 0.72 else 'geçemedi ✗'}")
 """),
     md("""

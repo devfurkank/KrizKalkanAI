@@ -204,14 +204,36 @@ def main() -> int:
     # kurabilirdi.
     sentetik_kayit = SENTETIK / "kayitlar.jsonl"
     if sentetik_kayit.exists():
-        uretilmis = [
+        # YALNIZCA `rol="tutulan"` kayıtlar alınır.
+        #
+        # Korpus artık hem eğitim hem ölçüm görselleri taşıyor. Eğitimde
+        # kullanılmış bir görseli M6'ya koymak, uçtan uca başarımı modelin
+        # ezberi üzerinden ölçmek olurdu — tam da bu deponun reddettiği şey
+        # (docs/metrikler/m4.md · alan içi başarım ölçülmez).
+        #
+        # Rolü olmayan eski kayıtlar da ölçüm tarafındadır (z_image korpusu
+        # eğitime hiç girmedi), ama varsayıma güvenilmez: rol alanı yoksa
+        # kayıt ATLANIR ve kaç tane atlandığı basılır.
+        tum_kayitlar = [
             k
             for satir in sentetik_kayit.read_text(encoding="utf-8").splitlines()
-            if satir
-            and (k := json.loads(satir))
+            if satir and (k := json.loads(satir))
+        ]
+        rolsuz = [k for k in tum_kayitlar if "rol" not in k]
+        if rolsuz:
+            print(
+                f"⚠️ {len(rolsuz)} sentetik kayıtta `rol` alanı yok, atlandı. "
+                "Korpusu `build_sentetik_korpus.py` ile yeniden kurun."
+            )
+        uretilmis = [
+            k
+            for k in tum_kayitlar
+            if k.get("rol") == "tutulan"
             and (SENTETIK / "goruntuler" / k["dosya"]).exists()
             and k.get("tur") in TUR_SABLONLARI
         ]
+        if not uretilmis:
+            print("⚠️ tutulan rolde sentetik görsel yok; SENTETİK_MEDYA sınıfı boş kalacak")
         rastgele.shuffle(uretilmis)
         for kayit in uretilmis[: args.medya_basina]:
             vakalar.append(
@@ -221,7 +243,7 @@ def main() -> int:
                     "metin": TUR_SABLONLARI[kayit["tur"]],
                     "medya": _goreli(SENTETIK / "goruntuler" / kayit["dosya"]),
                     "medya_turu": "image",
-                    "kaynak": f"üretilmiş · {kayit['uretici']}",
+                    "kaynak": f"üretilmiş · {kayit['uretici']} · rol={kayit['rol']}",
                     "gercek_tur": kayit["tur"],
                     "iddia_edilen_tur": kayit["tur"],
                     "uretici": kayit["uretici"],

@@ -38,7 +38,7 @@ from krizkalkan_core.fusion.engine import (  # noqa: E402
     SENTETIK_KANIT_ESIGI,
 )
 from krizkalkan_core.pipeline import AnalysisPipeline  # noqa: E402
-from krizkalkan_core.taxonomy import Verdict  # noqa: E402
+from krizkalkan_core.taxonomy import HIGH_CONFIDENCE_THRESHOLD, Verdict  # noqa: E402
 
 KUME = REPO_ROOT / "data" / "processed" / "m6_uctan_uca.jsonl"
 RAPOR = REPO_ROOT / "docs" / "metrikler" / "m6.md"
@@ -103,6 +103,27 @@ AZAMI_NOKTA = 12
 KARAR_ESIKLERI: dict[str, float] = {
     "synthetic.video": SENTETIK_KANIT_ESIGI,
     "multimodal.scene_claim": SAHNE_CELISKI_ESIGI,
+}
+
+#: Sinyalin karara girmesi değil, kararın YÜKSELMESİ için gereken eşik.
+#:
+#: Karar eşiği aşılırsa sinyal sınıfı kurar; bu eşik aşılırsa karar ayrıca
+#: insan moderatöre yönlendirilir (SEVIYE_4). Bir kalibrasyon tavanı buranın
+#: altına düşerse sinyal çalışmaya devam eder ama **yükselme yeteneğini
+#: sessizce kaybeder.**
+#:
+#: Yaşandı: `knowledge.verdict` yeniden ölçüldüğünde ECE 0,0521'den 0,0492'ye
+#: düzeldi — daha İYİ bir kalibrasyon — ama tavanı 0,7714'ten 0,676'ya indi.
+#: Politika eşiği 0,70 olduğu için bilgi havuzu kaynaklı hiçbir karar artık
+#: SEVIYE_4'e çıkamıyordu. Demo akışında beş müdahale seviyesinden biri
+#: tamamen kayboldu ve bunu yalnızca API testi yakaladı.
+#:
+#: Bu bir DEVRE KESME değil, bir YETENEK KAYBIDIR: kalibrasyon yine de yazılır,
+#: ama uyarı hem ekrana hem rapora düşer.
+YUKSELME_ESIKLERI: dict[str, float] = {
+    "knowledge.verdict": HIGH_CONFIDENCE_THRESHOLD,
+    "synthetic.video": HIGH_CONFIDENCE_THRESHOLD,
+    "provenance.match": HIGH_CONFIDENCE_THRESHOLD,
 }
 
 
@@ -192,12 +213,13 @@ def isotonic_noktalar(ham: list[float], hedef: list[int]) -> list[tuple[float, f
     return duzeltilmis
 
 
-def kalibre_et(sonuclar: list[dict], tohum: int) -> dict[str, dict]:
+def kalibre_et(sonuclar: list[dict], tohum: int) -> tuple[dict[str, dict], list[str]]:
     """Sinyal başına isotonic uydurur ve ECE'yi ayrı bölmede ölçer."""
     from sklearn.isotonic import IsotonicRegression
 
     rastgele = np.random.default_rng(tohum)
     cikti: dict[str, dict] = {}
+    uyarilar: list[str] = []
 
     hedefler: list[tuple[str, object]] = [(a, ("sinif", h)) for a, h in SINYAL_HEDEFI.items()] + [
         (a, ("meta", m)) for a, m in META_HEDEFI.items()
@@ -261,6 +283,16 @@ def kalibre_et(sonuclar: list[dict], tohum: int) -> dict[str, dict]:
             )
             continue
 
+        if (yuk := YUKSELME_ESIKLERI.get(anahtar)) is not None and tavan < yuk:
+            uyarilar.append(
+                f"`{anahtar}` tavanı {tavan:.4f} < yükselme eşiği {yuk:.2f} — "
+                "bu sinyal sınıf kurabilir ama kararı SEVIYE_4'e çıkaramaz"
+            )
+            print(
+                f"    ⚠ tavan {tavan:.4f} < yükselme eşiği {yuk:.2f}: sinyal sınıf "
+                "kurar ama insan moderatöre yükseltemez (SEVIYE_4 kaybı)"
+            )
+
         cikti[anahtar] = {
             "n": len(ciftler),
             "pozitif": int(etiket.sum()),
@@ -272,7 +304,7 @@ def kalibre_et(sonuclar: list[dict], tohum: int) -> dict[str, dict]:
             f"  {anahtar:22s} n={len(ciftler):3d} poz={int(etiket.sum()):3d}  "
             f"ECE {once:.4f} → {sonra:.4f}"
         )
-    return cikti
+    return cikti, uyarilar
 
 
 def _letterbox_kalibrasyon(goruntu):
@@ -447,7 +479,7 @@ def siniflandirma_olcumu(sonuclar: list[dict]) -> dict:
     }
 
 
-def rapor_yaz(kalibrasyon: dict, siniflandirma: dict, n: int) -> Path:
+def rapor_yaz(kalibrasyon: dict, siniflandirma: dict, n: int, uyarilar: list[str]) -> Path:
     simdi = datetime.now(UTC).strftime("%d.%m.%Y %H:%M UTC")
     s = [
         "# M6 — Kalibre Kanıt Füzyonu · Değerlendirme",
@@ -472,6 +504,17 @@ def rapor_yaz(kalibrasyon: dict, siniflandirma: dict, n: int) -> Path:
         f"| `{k}` | {d['n']} | {d['pozitif']} | {d['ece_once']:.4f} | **{d['ece_sonra']:.4f}** |"
         for k, d in kalibrasyon.items()
     ]
+    if uyarilar:
+        s += [
+            "",
+            "> **⚠️ Yükselme yeteneği uyarısı.** Aşağıdaki sinyaller sınıfı kurabilir",
+            "> ama kararı insan moderatöre (SEVIYE_4) **yükseltemez**: ölçülen",
+            "> kalibrasyon tavanı politika eşiğinin altında kaldı. Bu bir devre kesme",
+            "> değil, yetenek kaybıdır — sessiz kalmaması için buraya yazılır.",
+            "",
+        ]
+        s += [f"> - {m}" for m in uyarilar]
+
     s += [
         "",
         "> Rapor 3.2 hedefi: ECE ≤ 0,05",
@@ -535,6 +578,11 @@ def rapor_yaz(kalibrasyon: dict, siniflandirma: dict, n: int) -> Path:
 def main() -> int:
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--tohum", type=int, default=42)
+    a.add_argument(
+        "--kalibrasyon-yazma",
+        action="store_true",
+        help="ölç ve raporla ama üretimdeki kalibrasyonu DEĞİŞTİRME",
+    )
     args = a.parse_args()
 
     if not KUME.exists():
@@ -546,7 +594,7 @@ def main() -> int:
     sonuclar = vakalari_calistir(vakalar)
 
     print("\n→ kalibrasyon")
-    kalibrasyon = kalibre_et(sonuclar, args.tohum)
+    kalibrasyon, uyarilar = kalibre_et(sonuclar, args.tohum)
     if (koken := koken_kalibrasyonu(args.tohum)) is not None:
         kalibrasyon["provenance.match"] = koken
 
@@ -557,7 +605,12 @@ def main() -> int:
         print(f"    {k:26s} {v:.4f}")
 
     CIKTI.mkdir(parents=True, exist_ok=True)
-    (CIKTI / "kalibrasyon.json").write_text(
+    hedef = CIKTI / (
+        "kalibrasyon_olculmus_bekliyor.json" if args.kalibrasyon_yazma else "kalibrasyon.json"
+    )
+    if args.kalibrasyon_yazma:
+        print(f"\n⚠ üretimdeki kalibrasyon DEĞİŞTİRİLMEDİ; ölçüm {hedef.name} dosyasına yazıldı")
+    hedef.write_text(
         json.dumps(
             {
                 k: {"noktalar": d["noktalar"], "n": d["n"], "ece": d["ece_sonra"]}
@@ -569,8 +622,10 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    print(f"\n✓ {rapor_yaz(kalibrasyon, siniflandirma, len(vakalar)).relative_to(REPO_ROOT)}")
-    print(f"✓ {(CIKTI / 'kalibrasyon.json').relative_to(REPO_ROOT)}")
+    print(
+        f"\n✓ {rapor_yaz(kalibrasyon, siniflandirma, len(vakalar), uyarilar).relative_to(REPO_ROOT)}"
+    )
+    print(f"✓ {hedef.relative_to(REPO_ROOT)}")
     return 0
 
 

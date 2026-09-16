@@ -318,7 +318,7 @@ KK_MODELS=on python scripts/eval/system_latency.py   # gecikme + verim
 |---|---|
 | **Beklenti** | `afet_ozgulluk ≥ 0,95` kabul kapısı M4'ün afet alanındaki yetkinliğini güvence altına alıyordu |
 | **Ölçüm** | Kapı yalnızca **yanlış pozitifi** ölçüyor. Doğru pozitif hiç ölçülmemişti — üretilmiş afet görselinden oluşan bir küme yoktu |
-| **Bulgu** | Küme kuruldu (n=35). Model **0/35** yakalıyor; P(üretilmiş) medyanı 0,0259 |
+| **Bulgu** | Küme kuruldu (önce n=35 z_image, sonra n=1985 · 5 üretici). Model z_image'da **0/35**, PixArt-Σ'da 86/250, SANA'da 188/596 yakalıyor. Kör nokta **toplam değil, üreticiye bağlı** |
 | **Karar** | Ölçüm kalıcı hâle getirildi (`afet_duyarlilik`), model kartına ve rapora yazıldı. Kapı **değiştirilmedi** — değiştirmek M4'ü yarışma öncesi devreden çıkarırdı; karar takımındır |
 
 Kapının tek yanlı olması yapısal bir kusurdur: **her görüntüye "gerçek" diyen
@@ -336,6 +336,58 @@ sebep ikisinde de aynı: afet korpusu negatif sınıfta.
 Düzeltme yolu ölçüldü ama uygulanmadı: pozitif sınıfa üretilmiş afet görseli
 konmalı. Elimizde 35 tane var; eğitim için birkaç yüz gerekir.
 
+### Kalibrasyon tavanı bir yeteneği de sessizce kesebilir
+
+İlk koruma yalnızca **karar** eşiğini denetliyordu: eşleme tavanı füzyonun
+sınıf kurma eşiğinin altına düşerse sinyal hiç ateşleyemez, o yüzden yazılmaz.
+
+Küme genişletilip yeniden ölçülünce ikinci, daha sinsi bir biçimi ortaya çıktı.
+`knowledge.verdict` yeniden kalibre edildi ve **daha iyi** çıktı
+(ECE 0,0521 → 0,0492) — ama tavanı 0,7714'ten **0,6667**'ye indi. Politika
+eşiği `HIGH_CONFIDENCE_THRESHOLD = 0,70` olduğu için bilgi havuzu kaynaklı
+hiçbir karar artık insan moderatöre yükselemiyordu.
+
+Sinyal çalışmaya devam ediyordu. Sınıf kuruluyordu. Yalnızca **yükselme
+yeteneği** kaybolmuştu — ve demo akışında beş müdahale seviyesinden biri
+(SEVIYE_4) tamamen yok oldu.
+
+Bunu ne kabul kapısı, ne füzyon koruması, ne de M6 raporu gördü. Yakalayan tek
+şey `apps/api/tests/test_api.py::test_akis_tum_mudahale_seviyelerini_kapsar`
+oldu: demo akışının beş seviyeyi de göstermesini şart koşan bir test.
+
+| | |
+|---|---|
+| **Karar** | Ölçülmüş kalibrasyon devreye ALINMADI; üretim çalışan eşlemede bırakıldı |
+| **Sebep** | Yarışma öncesi demoyu tek taraflı bozmamak. Kalibrasyon `models/m6_fusion/kalibrasyon_olculmus_bekliyor.json` olarak duruyor |
+| **Açık soru** | Ya eşik 0,70 ölçülen olasılıklara göre fazla yüksek, ya da demo tohumunda gerçekten yüksek güvenli bir vaka olmalı. İkisi de ürün kararıdır |
+
+`m6_fusion.py` artık iki ayrı eşiği ayrı ayrı denetliyor: **karar** eşiğinin
+altına düşen eşleme yazılmaz (devre kesme), **yükselme** eşiğinin altına düşen
+yazılır ama uyarı hem ekrana hem `docs/metrikler/m6.md`'ye basılır (yetenek
+kaybı). Ayrıca `--kalibrasyon-yazma` bayrağı ölçümü üretimi değiştirmeden
+yapmayı sağlıyor.
+
+### Biçim, sınıfı ele veren gizli bir kanaldır
+
+Üretilmiş afet korpusu kurulurken üç ayrı biçim ipucu ölçüldü ve kapatıldı.
+Hiçbiri modelin yeteneğiyle ilgili değil; hepsi ölçümü şişirirdi.
+
+| İpucu | Önce | Sonra | Sebep |
+|---|---|---|---|
+| bayt/piksel | **0,8500** | 0,5639 | Üretilmiş görsel aynı JPEG kalitesinde daha çok sıkışır |
+| en/boy oranı | **0,6704** | 0,5056 | Üretici modeller 4:3 ve 16:9 verir; foto muhabirliği 3:2 ağırlıklıdır |
+| yükseklik | **0,6704** | 0,5072 | Oranın sonucu |
+| genişlik | 0,5035 | 0,5022 | — |
+
+En/boy oranının neden önemli olduğu ön işlemeden gelir: `_hazirla()` görüntüyü
+kareye **eziyor** (`resize((224, 224))`), kırpmıyor. Dolayısıyla oran, nesne
+orantılarındaki bozulma olarak modele ulaşır ve öğrenilebilir bir sinyale
+dönüşür. Kırpma olsaydı bilgi atılırdı ve ipucu zararsız kalırdı.
+
+Düzeltme: her üretilmiş görselin hedef genişliği, bayt/pikseli **ve en/boy
+oranı** gerçek korpusun ampirik dağılımından çekilir
+(`scripts/data/build_sentetik_korpus.py`).
+
 ### Kalibrasyon bir sinyali sessizce kesebilir
 
 M6 kümesine SENTETİK_MEDYA eklendikten sonra `synthetic.video` ilk kez
@@ -351,6 +403,20 @@ karşılaştırıyor ve ulaşamıyorsa **yazmayı reddediyor**. Üretimdeki eşl
 ateşleyebildiği ayrıca testle kilitli
 (`test_fusion_kalibrasyon_kilidi.py`).
 
+Küme tutulan üreticilerle (PixArt-Σ + z_image, n=60) genişletildikten sonra
+eşleme sağlıklı çıktı — tavan **0,8421** — ve ilk kez üretime alındı. Etkisi
+ölçüldü (elle yazılmış → ölçülmüş):
+
+| | Elle yazılmış | Ölçülmüş |
+|---|---|---|
+| Makro-F1 | 0,4277 | **0,4606** |
+| SENTETİK_MEDYA F1 | 0,0625 | **0,2667** |
+| TEMİZ → SENTETİK yanlış suçlama | 0 | **0** |
+| YANLIŞ_BAĞLAM → SENTETİK | 2 | 5 |
+
+Duyarlılık arttı, temiz içerikte yanlış suçlama artmadı. Gerçek görsellerde
+toplam yanlış suçlama 5/320 (%1,6).
+
 ---
 
 ## 7. Bilinen boşluklar
@@ -365,10 +431,16 @@ ateşleyebildiği ayrıca testle kilitli
   görüntünün doğal doku değişimini ölçüyor (`docs/metrikler/m4-ela.md`).
 - **M4 · video ve ses** kurulmadı. Video için kare çıkarımı (ffmpeg) yok; ses
   için ASVspoof üzerinde eğitim planlı.
-- **M4 · ALAN KÖR NOKTASI (en ciddi açık).** Model üretilmiş afet
-  görsellerinin **%0,0'ını** yakalıyor (n=35, eşik 0,50). Genel yapay
-  görüntüde çalışıyor (çapraz AUC 0,7871; OpenFake sahtelerinde medyan skor
-  0,5152), kriz alanında çalışmıyor. Ayrıntı: *M4'ün ölçülmemiş yarısı* bölümü.
+- **M4 · ALAN KÖR NOKTASI (en ciddi açık).** Üretilmiş afet görsellerinde
+  duyarlılık üreticiye göre değişiyor (n=1985 korpus, eşik 0,50):
+  hizalı VAE sahteleri **%1,6** · hizalı img2img **%7,6** · SANA **%31,5** ·
+  SDXL **%34,2** · PixArt-Σ **%34,4** · **z_image %0,0**. Tutulan üreticilerde
+  toplam duyarlılık **0,3018**. Ayrıntı: *M4'ün ölçülmemiş yarısı* bölümü.
+- **M4 · tutulan üretici VAE'yi eğitimle paylaşıyor.** PixArt-Σ ile SDXL
+  birebir aynı VAE'yi kullanıyor (`AutoencoderKL`, latent 4, scaling 0,13025).
+  Eğitim pozitiflerinin 1100/1700'ü sdxl-vae izi taşıdığı için PixArt üzerinde
+  ölçülen genelleme **iyimserdir**. Mimari olarak bağımsız tek tutulan üretici
+  z_image'dır (n=35).
 - **MANİPÜLE_MEDYA** sınıfı uçtan uca değerlendirme kümesinde yok — M2'yi
   gerektiriyor. Makro-F1 bu nedenle rapor 3.2'deki altı sınıflı hedefle
   doğrudan karşılaştırılamaz. SENTETİK_MEDYA sınıfı **eklendi** (n=35).

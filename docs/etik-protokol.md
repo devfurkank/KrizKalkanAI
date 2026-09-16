@@ -404,18 +404,42 @@ nereden geldiği her zaman izlenebilir.
 > `cc-by-nc-sa-4.0`, README'nin lisans bölümünde `cc-by-nc-4.0`. İkisi de
 > ticari kullanımı yasaklıyor, dolayısıyla sonuç değişmiyor.
 
-**M4 görüntü ağırlıkları ticari kullanıma açıktır.** M3'teki durumun
-aksine, sentetik görüntü detektörlerinin zincirinde ticari kısıt yoktur:
+**⚠️ M4 görüntü ağırlığı ticari kullanıma AÇIK DEĞİLDİR.** Bu bölüm daha önce
+aksini iddia ediyordu; iddia yanlıştı ve 15.09.2026'da düzeltildi.
 
 | Bileşen | Lisans | Not |
 |---|---|---|
-| İkili detektör (DeepReality PIN-B2) | MIT | Takım üyesinin kendi projesi; kaynak ve ağırlık aynı elden |
-| İkili detektörün eğitim kümesi (OpenDeepfake-Preview) | Apache 2.0 | Ticari kullanıma açık |
-| Üç sınıflı detektör (AI-vs-Deepfake-vs-Real-Siglip2) | Apache 2.0 | Harici hazır ağırlık, atıf yeterli |
+| Gövde (`google/siglip2-base-patch16-224`) | Apache 2.0 | Donuk; ticari kullanıma açık |
+| Eğitim kümesi (`jhutter2/281_Genimage`) | **CC BY-NC-SA 4.0** | Aynanın etiketi "MIT" diyor ama **özgün GenImage lisansı NC-SA**. Ağırlık bu kümeyle eğitildi |
+| Afet korpusu (Wikimedia Commons) | CC BY-SA / kamu malı | Negatif sınıfta kullanıldı; ticari kullanıma açık |
+| Değerlendirme kümesi (`ComplexDataLab/OpenFake`) | CC BY-NC 4.0 | Yalnızca ölçüm; ağırlığa bulaşmaz |
 
-> Değerlendirme kümesinin (OpenFake, CC BY-NC) lisansı ağırlığa **bulaşmaz**:
-> o küme yalnızca ölçüm için okunur, hiçbir parametre ondan öğrenilmez. Ayrım
-> önemlidir ve ticari dağıtımda savunulabilir olması için burada yazılıdır.
+**Hatanın kaynağı.** Eğitim kümesi `jhutter2/281_Genimage`, GenImage'ın 3.876
+görsellik bir alt kümesidir. Yükleyen kişi depoya "mit" etiketi koymuş ve
+README'yi boş bırakmış. Özgün GenImage deposunun `License` dosyası ise şunu
+diyor:
+
+> *"Unless specifically labeled otherwise, these Datasets are provided to You
+> under the terms of the Creative Commons Attribution-NonCommercial-ShareAlike
+> 4.0 International Public License."*
+
+Bu belgenin MiDe22 için zaten yazdığı ilke buraya da uygulanmalıydı ve
+uygulanmamıştı: **bir aynanın lisans etiketi, özgün sahibin lisansını geçersiz
+kılmaz.**
+
+**Sonuçları.**
+
+1. `temiz` ağırlığı ticari dağıtımda M3 ile aynı konumdadır: yeniden eğitim ya
+   da izin gerekir.
+2. `genis` ağırlığının devre dışı bırakılma gerekçesi **kısmen geçersizdir.**
+   O ağırlık CC BY-NC (OpenFakeTiny) olduğu için elenmişti; `temiz` de CC
+   BY-NC-SA çıktı. Lisans artık ikisini ayırmıyor. Ayıran tek gerekçe ölçüm
+   bulaşmasıdır: `genis`, OpenFake train ile eğitilip OpenFake test ile
+   ölçüldüğü için genelleme gücü ölçülemiyor. Bu gerekçe tek başına da
+   yeterlidir, ama doğru gerekçe budur.
+3. Ticari zinciri temiz bir M4 için eğitim verisinin **tamamen** değişmesi
+   gerekir: kendi ürettiğimiz görseller (Apache 2.0 / OpenRAIL++ üreticiler) ve
+   izin lisanslı gerçek fotoğraflar. Yol haritası: `docs/mimari.md`.
 
 **MiDe22 lisansı doğrulanmalı.** Veri, `ogozcelik/turkish-fake-news-detection`
 adlı bir **aynadan** alındı ve bu ayna MIT lisanslı olarak etiketlenmiş. Özgün

@@ -47,6 +47,7 @@ def _gomulu(ad: str) -> str:
 
 def hucreler() -> list[dict]:
     komutlar = _gomulu("sentetik_afet_komutlari.json")
+    olay_ayrimi = _gomulu("afet_olay_ayrimi.json")
     profil = _gomulu("afet_bicim_profili.json")
 
     return [
@@ -89,13 +90,51 @@ Bu yüzden üreticiler role ayrılır ve roller KARIŞMAZ:
 
 | Üretici | Mimari | Lisans | Rol |
 |---|---|---|---|
-| FLUX.1-schnell | rectified flow (DiT) | **Apache 2.0** | eğitim |
+| SANA 1.6B | linear-attention DiT | **Apache 2.0** | eğitim |
 | SDXL base 1.0 | UNet latent diffusion | OpenRAIL++-M | eğitim |
-| SD 2.1 base | UNet latent diffusion | OpenRAIL++-M | **tutulan** (ölçüm) |
+| **Hizalı sahteler** (kendi afet fotoğraflarımızdan) | SDXL VAE + img2img | kendi korpusumuz | eğitim |
+| PixArt-Σ XL-2 | DiT + T5 | OpenRAIL++-M | **tutulan** (ölçüm) |
 | z_image (Tongyi-MAI) | — (API) | — | **tutulan** (elde 35 görsel var) |
+
+> **FLUX.1-schnell neden yok?** Apache 2.0 ve mimari olarak ideal, ama HF'de
+> kapılı (`gated`): lisansı kabul edip Colab'a `HF_TOKEN` eklemek gerekiyor.
+> SANA da Apache 2.0, DiT ailesinden ve **kapısız**. FLUX'ı eklemek isterseniz
+> depoda kabul edip token tanımlayın, sonra SANA hücresini kopyalayıp
+> `FluxPipeline` ile değiştirin.
+>
+> **SD 2.1 neden yok?** Stability, `stabilityai/stable-diffusion-2-1-base`
+> deposunu HF'den kaldırmış (`RepositoryNotFoundError`). Yerine PixArt-Σ
+> kondu — üstelik DiT olduğu için mimari çeşitliliği artırıyor.
 
 Eğitim sonrası ölçüm yalnızca *tutulan* üreticilerde yapılır: o zaman ölçülen
 şey **görülmemiş üreticiye aktarım** olur, ezber değil.
+
+---
+
+## Hizalı sahteler: kör noktayı asıl kapatan parça
+
+Kör noktanın sebebi **içerik yanlılığı**: model görselin konusuna bakıp karar
+veriyor. Afet sahnesi yalnızca "gerçek" sınıfında göründüğü için "afet → gerçek"
+kısayolunu öğrendi.
+
+Yeni üretilmiş afet görselleri bunu kısmen düzeltir ama tam çözmez: üretilmiş
+görsellerin konusu da, kompozisyonu da gerçeklerden farklıdır, dolayısıyla
+model yine içerikten yararlanabilir.
+
+Tam çözüm, sahteyi **gerçek fotoğrafın kendisinden** üretmektir (Aligned
+Datasets · ICLR 2025; B-Free · CVPR 2025). İki sınıfta içerik birebir aynı olur;
+geriye kalan tek fark üretim izidir. Model başka hiçbir ipucu kullanamaz.
+
+Yerelde ölçüldü (pilot, n=7): mevcut model, kendi VAE'sinden geçmiş afet
+fotoğraflarını gerçeklerinden **AUC 0,5612** ile ayırıyor — yani neredeyse hiç.
+Bu, teşhisi doğruluyor.
+
+Bu defter iki hizalı sahte üretir:
+
+| Yöntem | Ne yapar | Güç |
+|---|---|---|
+| VAE yeniden kurma | Fotoğraf SDXL sıkıştırıcısından geçip geri açılır | zayıf iz, çok ucuz |
+| img2img (güç 0,35) | Fotoğraf kısmen yeniden üretilir | güçlü iz, içerik korunur |
 
 > **Lisans notu.** Eğitimde kullanılan üreticinin lisansı ağırlığın köken
 > zincirine girer. `genis` modeli tam da bu yüzden devreye alınmamıştı
@@ -132,10 +171,14 @@ SADECE_TEMIZ_LISANS = False   # True → yalnızca Apache 2.0 üreticiler
 # tutulan küme ölçüm için daha küçük olabilir ama n<150 güven aralığını
 # kullanışsız hâle getirir.
 ADET = {
-    "flux-schnell": 600,   # eğitim
-    "sdxl-base":    600,   # eğitim
-    "sd21-base":    200,   # TUTULAN — ölçüm
+    "sana-1600m":   600,   # eğitim  · Apache 2.0
+    "sdxl-base":    600,   # eğitim  · OpenRAIL++-M
+    "pixart-sigma": 250,   # TUTULAN · ölçüm
 }
+
+# Hizalı sahteler kaç afet fotoğrafından üretilsin (0 = kapalı).
+# Yalnızca EĞİTİM olaylarından üretilir; tutulan olaylara dokunulmaz.
+HIZALI_ADET = 500
 
 # Tür dağılımı gerçek korpusu taklit eder (Kahramanmaraş ağırlıklı).
 TUR_AGIRLIK = {"deprem": 0.55, "sel": 0.22, "yangın": 0.23}
@@ -155,11 +198,25 @@ print("toplam hedef:", sum(ADET.values()), "görsel")
                 "sentencepiece==0.2.1" "protobuf==6.33.1" 2>&1 | tail -2
 
 import torch
-print("torch", torch.__version__)
-print("GPU  ", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "YOK")
-print("VRAM ", f"{torch.cuda.get_device_properties(0).total_mem / 1e9:.0f} GB"
-       if torch.cuda.is_available() else "—")
-assert torch.cuda.is_available(), "GPU çalışma zamanı seçin (Runtime → Change runtime type → A100)"
+
+assert torch.cuda.is_available(), (
+    "GPU çalışma zamanı seçin: Runtime → Change runtime type → A100"
+)
+
+_ozellik = torch.cuda.get_device_properties(0)
+_vram = _ozellik.total_memory / 1e9   # not: total_mem DEĞİL
+
+print("torch  ", torch.__version__)
+print("GPU    ", torch.cuda.get_device_name(0))
+print("VRAM   ", f"{_vram:.0f} GB")
+
+# FLUX.1-schnell bfloat16'da ~24 GB ister. 40 GB'da cpu offload ile rahat
+# çalışır; 16 GB'lık bir kartta (T4/V100) sığmaz ve hücre OOM ile düşer.
+if _vram < 30:
+    print()
+    print(f"⚠ {_vram:.0f} GB — FLUX hücresi sığmayabilir. Seçenekler:")
+    print("   • A100 çalışma zamanına geçin (önerilen), ya da")
+    print("   • FLUX hücresini atlayıp SDXL + SD 2.1 ile devam edin")
 """),
         md("""
 ## 3 · Komut bankası ve biçim profili
@@ -383,35 +440,38 @@ def bosalt(*nesneler):
     print(f"VRAM boşta: {torch.cuda.mem_get_info()[0]/1e9:.1f} GB")
 '''),
         md("""
-## 6 · FLUX.1-schnell  ·  **eğitim**  ·  Apache 2.0
+## 6 · SANA 1.6B  ·  **eğitim**  ·  Apache 2.0
 
-Rectified flow transformer — SDXL/SD2.1'den bütünüyle farklı bir mimari,
-dolayısıyla farklı bir artefakt imzası. 4 adımda üretir, olumsuz komut
-kullanmaz (`guidance_scale=0`).
+Linear-attention DiT — SDXL'in UNet'inden bütünüyle farklı bir mimari,
+dolayısıyla farklı bir artefakt imzası. Lisansı **Apache 2.0**: eğitimde
+kullanılması ağırlığın köken zincirini temiz bırakır.
 
-Lisansı **Apache 2.0**: eğitimde kullanılması ağırlığın köken zincirini
-temiz bırakır.
+`complex_human_instruction=None` veriyoruz: SANA varsayılan olarak istemi bir
+dil modeliyle "zenginleştiriyor" ve kısa fotoğrafçılık istemlerimizi edebî
+sahne betimlerine çeviriyor — tam da kaçındığımız şey.
 """),
         kod("""
-from diffusers import FluxPipeline
+from diffusers import SanaPipeline
 
-boru = FluxPipeline.from_pretrained(
-    "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16)
-boru.enable_model_cpu_offload()   # 40 GB'a rahat sığsın diye
+boru = SanaPipeline.from_pretrained(
+    "Efficient-Large-Model/Sana_1600M_1024px_diffusers",
+    variant="fp16", torch_dtype=torch.float16)
+boru.to("cuda")
+boru.vae.to(torch.bfloat16)
+boru.text_encoder.to(torch.bfloat16)
 boru.set_progress_bar_config(disable=True)
 
-def _flux(komut, tohum):
+def _sana(komut, tohum):
     return boru(
-        prompt=komut,
-        num_inference_steps=4,
-        guidance_scale=0.0,
+        prompt=komut, negative_prompt=OLUMSUZ,
+        num_inference_steps=20, guidance_scale=4.5,
         height=768, width=1024,
-        max_sequence_length=256,
-        generator=torch.Generator("cpu").manual_seed(tohum),
+        complex_human_instruction=None,   # istem zenginleştirmeyi kapat
+        generator=torch.Generator("cuda").manual_seed(tohum),
     ).images[0]
 
-uret("flux-schnell", boru, "black-forest-labs/FLUX.1-schnell", "Apache-2.0",
-     "egitim", ADET["flux-schnell"], _flux, "rectified flow (DiT)")
+uret("sana-1600m", boru, "Efficient-Large-Model/Sana_1600M_1024px_diffusers",
+     "Apache-2.0", "egitim", ADET["sana-1600m"], _sana, "linear-attention DiT")
 bosalt(boru)
 """),
         md("""
@@ -444,34 +504,223 @@ else:
     bosalt(boru)
 """),
         md("""
-## 8 · SD 2.1 base  ·  **TUTULAN** (ölçüm)  ·  OpenRAIL++-M
+## 8 · PixArt-Σ XL-2  ·  **TUTULAN** (ölçüm)  ·  OpenRAIL++-M
 
 ⚠️ **Bu üreticinin görselleri eğitime GİRMEZ.** Ölçümde "görülmemiş üretici"
 rolünü oynarlar. Kayıtta `rol="tutulan"` ile işaretlidirler ve eğitim betiği
 o kayıtları dışarıda bırakır.
+
+Forged Calamity (2026) makalesinin bulgusu bu seçimi destekliyor: ince ayarlı
+dedektörler PixArt'la üretilmiş görsellerde %0–12'ye düşüyor. Yani PixArt,
+tutulan üretici olarak **en zorlayıcı** seçenek — ölçümü kolaylaştırmıyor,
+zorlaştırıyor. Doğru olan da bu.
 """),
         kod("""
-from diffusers import StableDiffusionPipeline
+from diffusers import PixArtSigmaPipeline
 
-boru = StableDiffusionPipeline.from_pretrained(
-    "stabilityai/stable-diffusion-2-1-base",
-    torch_dtype=torch.float16, use_safetensors=True).to("cuda")
+boru = PixArtSigmaPipeline.from_pretrained(
+    "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS", torch_dtype=torch.float16)
+boru.enable_model_cpu_offload()   # T5 metin kodlayıcısı ~19 GB
 boru.set_progress_bar_config(disable=True)
-boru.safety_checker = None   # afet sahneleri boş kare olarak dönüyordu
 
-def _sd21(komut, tohum):
+def _pixart(komut, tohum):
     return boru(
         prompt=komut, negative_prompt=OLUMSUZ,
-        num_inference_steps=25, guidance_scale=7.0,
-        height=512, width=768,
+        num_inference_steps=20, guidance_scale=4.5,
+        height=768, width=1024,
         generator=torch.Generator("cuda").manual_seed(tohum),
     ).images[0]
 
-uret("sd21-base", boru, "stabilityai/stable-diffusion-2-1-base",
-     "CreativeML OpenRAIL++-M", "tutulan", ADET["sd21-base"], _sd21,
-     "UNet latent diffusion")
+uret("pixart-sigma", boru, "PixArt-alpha/PixArt-Sigma-XL-2-1024-MS",
+     "CreativeML OpenRAIL++-M", "tutulan", ADET["pixart-sigma"], _pixart,
+     "DiT + T5")
 bosalt(boru)
 """),
+        md("""
+## 8b · Hizalı sahteler  ·  **eğitim**  ·  kendi korpusumuzdan
+
+Kör noktayı asıl kapatan parça. Sahte, **gerçek afet fotoğrafının kendisinden**
+üretilir; içerik birebir aynı kalır, geriye kalan tek fark üretim izidir.
+
+**Önce afet korpusunu yükleyin.** Yerelde:
+
+```bash
+cd "KrizKalkanAI/data/external/provenance"
+zip -r ~/Desktop/afet_korpusu.zip goruntuler kayitlar.jsonl
+```
+
+Sonra aşağıdaki hücre dosya seçme kutusu açar.
+
+⚠️ **Olay bazlı ayrım burada uygulanır.** Hizalı sahteler yalnızca *eğitim*
+olaylarından üretilir. Tutulan olaylara (aşağıda listeli) dokunulmaz: o
+fotoğraflar kabul kapısının ölçüm kümesidir ve içerikleri eğitime hiçbir
+biçimde sızmamalıdır.
+"""),
+        kod("""
+from google.colab import files
+
+print("afet_korpusu.zip dosyasını seçin:")
+yuklenen = files.upload()
+ad = next(iter(yuklenen))
+!unzip -q -o "{ad}" -d /content/afet_korpusu
+!ls /content/afet_korpusu
+"""),
+        kod(f"""
+OLAY_AYRIMI = {olay_ayrimi}
+
+TUTULAN_OLAYLAR = set(OLAY_AYRIMI["tutulan_olaylar"])
+print("tutulan olaylar (eğitime GİRMEZ):")
+for o in sorted(TUTULAN_OLAYLAR):
+    print(f"  {{OLAY_AYRIMI['olay_sayilari'].get(o, 0):4d}}  {{o}}")
+print(f"\\ntoplam tutulan: {{OLAY_AYRIMI['_olcum']['tutulan']}}"
+      f"/{{OLAY_AYRIMI['_olcum']['toplam']}}"
+      f" (%{{OLAY_AYRIMI['_olcum']['tutulan_oran']*100:.1f}})")
+"""),
+        kod('''
+import glob
+import json
+import os
+import random
+import time
+
+import torch
+from PIL import Image
+
+if HIZALI_ADET <= 0:
+    print("⏭  atlandı: HIZALI_ADET = 0")
+else:
+    import numpy as np
+    from diffusers import AutoPipelineForImage2Image
+    from diffusers.models import AutoencoderKL
+
+    # Korpus kaydını bul (zip iç düzeni değişebilir)
+    aday = glob.glob("/content/afet_korpusu/**/kayitlar.jsonl", recursive=True)
+    assert aday, "kayitlar.jsonl bulunamadı — zip'i doğru kurduğunuzdan emin olun"
+    kayit_yolu = aday[0]
+    korpus_kok = os.path.dirname(kayit_yolu)
+
+    with open(kayit_yolu, encoding="utf-8") as f:
+        korpus = [json.loads(s) for s in f if s.strip()]
+
+    # OLAY BAZLI AYRIM — tutulan olaylar dışarıda kalır
+    egitim_foto = [
+        k for k in korpus
+        if k["olay"] not in TUTULAN_OLAYLAR
+        and os.path.exists(os.path.join(korpus_kok, "goruntuler", k["dosya"]))
+    ]
+    atilan = len(korpus) - len(egitim_foto)
+    print(f"korpus {len(korpus)} · eğitime uygun {len(egitim_foto)} · "
+          f"tutulan/eksik {atilan}")
+    assert egitim_foto, "eğitim olaylarından hiç fotoğraf bulunamadı"
+
+    rastgele = random.Random(f"{TOHUM}-hizali")
+    rastgele.shuffle(egitim_foto)
+    secim = egitim_foto[:HIZALI_ADET]
+    yari = len(secim) // 2
+
+    vae = AutoencoderKL.from_pretrained(
+        "stabilityai/sdxl-vae", torch_dtype=torch.float32).to("cuda").eval()
+
+    def _vae_yeniden(yol):
+        """Fotoğrafı SDXL sıkıştırıcısından geçirip geri açar."""
+        im = Image.open(yol).convert("RGB")
+        im.thumbnail((1024, 1024))
+        w, h = (im.width // 8) * 8, (im.height // 8) * 8
+        im = im.crop((0, 0, w, h))
+        x = torch.from_numpy(np.asarray(im, dtype=np.float32) / 127.5 - 1.0)
+        x = x.permute(2, 0, 1)[None].to("cuda")
+        with torch.no_grad():
+            geri = vae.decode(vae.encode(x).latent_dist.mode()).sample
+        dizi = ((geri[0].permute(1, 2, 0).clamp(-1, 1).float().cpu().numpy() + 1) * 127.5)
+        return Image.fromarray(dizi.astype(np.uint8))
+
+    kayitlar = kayitlari_oku()
+    varolan = {k["dosya"] for k in kayitlar}
+    uretilen = 0
+
+    # ── (a) VAE yeniden kurma ──
+    for i, foto in enumerate(secim[:yari]):
+        ad = f"SYNTH_hizali-vae_{i:04d}.jpg"
+        if ad in varolan:
+            continue
+        try:
+            im = _vae_yeniden(os.path.join(korpus_kok, "goruntuler", foto["dosya"]))
+        except Exception as e:
+            print(f"  🔴 {foto['dosya']}: {e}")
+            continue
+        yol = f"{CIKTI_DIZINI}/goruntuler/{ad}"
+        olcum = bicime_oturt(im, yol, ad)
+        kayitlar.append({
+            "dosya": ad, "tur": "hizali", "uretici": "stabilityai/sdxl-vae",
+            "kod": "hizali-vae", "mimari": "VAE yeniden kurma",
+            "lisans": "CreativeML OpenRAIL++-M (VAE) + korpus lisansı",
+            "rol": "egitim", "komut": "", "tohum": TOHUM + i,
+            "kaynak_foto": foto["dosya"], "kaynak_olay": foto["olay"],
+            "cerceve_kusuru": False, **olcum,
+        })
+        uretilen += 1
+        if uretilen % 50 == 0:
+            kayitlari_yaz(kayitlar)
+            print(f"  vae {uretilen}/{yari}")
+    kayitlari_yaz(kayitlar)
+    print(f"✓ VAE yeniden kurma: {uretilen} görsel")
+    bosalt(vae)
+
+    # ── (b) img2img ──
+    boru = AutoPipelineForImage2Image.from_pretrained(
+        "stabilityai/stable-diffusion-xl-base-1.0",
+        torch_dtype=torch.float16, variant="fp16", use_safetensors=True).to("cuda")
+    boru.set_progress_bar_config(disable=True)
+
+    basladi = time.time()
+    img_uretilen = 0
+    for i, foto in enumerate(secim[yari:]):
+        ad = f"SYNTH_hizali-img2img_{i:04d}.jpg"
+        if ad in varolan:
+            continue
+        kaynak = Image.open(
+            os.path.join(korpus_kok, "goruntuler", foto["dosya"])).convert("RGB")
+        kaynak.thumbnail((1024, 1024))
+        w, h = (kaynak.width // 8) * 8, (kaynak.height // 8) * 8
+        kaynak = kaynak.crop((0, 0, w, h))
+        # İstem sahneyi TARİF ETMEZ, yalnızca fotoğrafik kalmasını sağlar:
+        # amaç içeriği korumak, yeniden kurgulamak değil.
+        try:
+            im = boru(
+                prompt="a photograph", negative_prompt=OLUMSUZ,
+                image=kaynak, strength=0.35, guidance_scale=5.0,
+                num_inference_steps=30,
+                generator=torch.Generator("cuda").manual_seed(TOHUM + i),
+            ).images[0]
+        except Exception as e:
+            print(f"  🔴 {foto['dosya']}: {e}")
+            continue
+        yol = f"{CIKTI_DIZINI}/goruntuler/{ad}"
+        olcum = bicime_oturt(im, yol, ad)
+        kayitlar.append({
+            "dosya": ad, "tur": "hizali",
+            "uretici": "stabilityai/stable-diffusion-xl-base-1.0 (img2img)",
+            "kod": "hizali-img2img", "mimari": "UNet latent diffusion · img2img 0.35",
+            "lisans": "CreativeML OpenRAIL++-M + korpus lisansı",
+            "rol": "egitim", "komut": "a photograph", "tohum": TOHUM + i,
+            "kaynak_foto": foto["dosya"], "kaynak_olay": foto["olay"],
+            "cerceve_kusuru": False, **olcum,
+        })
+        img_uretilen += 1
+        if img_uretilen % 25 == 0:
+            kayitlari_yaz(kayitlar)
+            print(f"  img2img {img_uretilen}/{len(secim)-yari} · "
+                  f"{(time.time()-basladi)/img_uretilen:.1f} sn/görsel")
+    kayitlari_yaz(kayitlar)
+    print(f"✓ img2img: {img_uretilen} görsel")
+    bosalt(boru)
+
+    # Tutulan olayların hiçbir hizalı sahteye kaynaklık etmediğini doğrula.
+    sizinti = [k for k in kayitlari_oku()
+               if k.get("kaynak_olay") in TUTULAN_OLAYLAR]
+    assert not sizinti, f"🔴 TUTULAN OLAY SIZINTISI: {len(sizinti)} kayıt"
+    print("✓ tutulan olaylardan sızıntı yok")
+'''),
         md("## 9 · Özet ve denetim"),
         kod("""
 import collections, statistics

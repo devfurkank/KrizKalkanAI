@@ -1,0 +1,24 @@
+{
+ "_aciklama": "Afet korpusunun OLAY BAZLI ayrımı. Tutulan olaylar eğitime hiç girmez ve kabul kapısı (afet_ozgulluk) YALNIZCA orada ölçülür.",
+ "_gerekce": "Önceki eğitim koşusu korpusun %80'ini rastgele eğitime koyuyordu, ama afet_ozgulluk korpusun TAMAMINDA ölçülüyordu — yani kapının baktığı fotoğrafların çoğunu model eğitimde görmüştü ve 0,9885 iyimser bir sayıydı. Rastgele bölme de yetmez: aynı olayın fotoğrafları birbirine çok benzer, rastgele bölmede aynı enkazın başka karesi hem eğitimde hem ölçümde çıkar.",
+ "_olcum": {
+  "toplam": 786,
+  "tutulan": 130,
+  "tutulan_oran": 0.1654
+ },
+ "tutulan_olaylar": [
+  "Türkiye'de depremler (arşiv)",
+  "2023 Adıyaman-Şanlıurfa sel felaketi",
+  "2021 Milas yangını",
+  "2022 Ankara selleri"
+ ],
+ "olay_sayilari": {
+  "6 Şubat 2023 Kahramanmaraş depremleri": 610,
+  "20 Şubat 2023 Hatay depremi": 3,
+  "2021 Milas yangını": 14,
+  "2023 Adıyaman-Şanlıurfa sel felaketi": 17,
+  "2022 Ankara selleri": 1,
+  "Türkiye'de seller (arşiv)": 43,
+  "Türkiye'de depremler (arşiv)": 98
+ }
+}

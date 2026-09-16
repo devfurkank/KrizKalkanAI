@@ -88,30 +88,38 @@ def _slug(metin: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in sade).strip("-").replace("--", "-")
 
 
-def _gercek_profil() -> list[tuple[int, float]]:
-    """Gerçek korpusun (genişlik, bayt/piksel) çiftleri — hedef havuzu."""
+def _gercek_profil() -> list[tuple[int, float, float]]:
+    """Gerçek korpusun (genişlik, bayt/piksel, en_boy_orani) üçlüleri.
+
+    En/boy oranı sonradan eklendi ve gerekliydi: üretici modeller sabit oranlarda
+    üretiyor (4:3, 16:9) ama gerçek foto muhabirliği 3:2 ağırlıklıdır. Ölçüldü,
+    oran TEK BAŞINA AUC 0,6704 veriyordu. Ve bu ipucu modele ULAŞIYOR: ön işleme
+    görüntüyü kareye EZİYOR (`resize((224, 224))`), kırpmıyor — dolayısıyla oran,
+    nesne orantılarındaki bozulma olarak öğrenilebilir bir sinyale dönüşüyor.
+    """
     from PIL import Image
 
     g = REPO_ROOT / "data" / "external" / "provenance" / "goruntuler"
-    cift = []
+    ucluler = []
     for p in sorted(g.iterdir()):
         try:
             im = Image.open(p)
             if im.format != "JPEG":
                 continue
-            cift.append((im.size[0], p.stat().st_size / (im.size[0] * im.size[1])))
+            en, boy = im.size
+            ucluler.append((en, p.stat().st_size / (en * boy), en / boy))
         except Exception:
             continue
-    return cift
+    return ucluler
 
 
-def _hedef(tohum: str, havuz: list[tuple[int, float]]) -> tuple[int, float]:
+def _hedef(tohum: str, havuz: list[tuple[int, float, float]]) -> tuple[int, float, float]:
     """Görsel kimliğinden türetilmiş, yeniden üretilebilir hedef biçim."""
     h = int(hashlib.blake2b(tohum.encode("utf-8"), digest_size=8).hexdigest(), 16)
     return havuz[h % len(havuz)]
 
 
-def _indirge(kaynak: Path, hedef: Path, tohum: str, havuz: list[tuple[int, float]]) -> dict:
+def _indirge(kaynak: Path, hedef: Path, tohum: str, havuz: list[tuple[int, float, float]]) -> dict:
     """Üretilmiş görseli gerçek korpustan çekilmiş bir biçim hedefine oturtur.
 
     Kalite, hedef bayt/piksele ikili aramayla yaklaştırılır. Sabit kalite
@@ -124,7 +132,20 @@ def _indirge(kaynak: Path, hedef: Path, tohum: str, havuz: list[tuple[int, float
 
     im = Image.open(kaynak).convert("RGB")
     ham_boyut = im.size
-    hedef_en, hedef_bpp = _hedef(tohum, havuz)
+    hedef_en, hedef_bpp, hedef_oran = _hedef(tohum, havuz)
+
+    # En/boy oranını hedefe ortadan kırparak getir.
+    mevcut_oran = im.width / im.height
+    if abs(mevcut_oran - hedef_oran) > 0.01:
+        if mevcut_oran > hedef_oran:  # çok geniş → yanlardan kırp
+            yeni_en = max(8, round(im.height * hedef_oran))
+            sol = (im.width - yeni_en) // 2
+            im = im.crop((sol, 0, sol + yeni_en, im.height))
+        else:  # çok yüksek → üst/alttan kırp
+            yeni_boy = max(8, round(im.width / hedef_oran))
+            ust = (im.height - yeni_boy) // 2
+            im = im.crop((0, ust, im.width, ust + yeni_boy))
+
     if im.width != hedef_en:
         oran = hedef_en / im.width
         im = im.resize((hedef_en, max(1, round(im.height * oran))), Image.LANCZOS)
@@ -152,6 +173,7 @@ def _indirge(kaynak: Path, hedef: Path, tohum: str, havuz: list[tuple[int, float
         "uretim_boyutu": f"{ham_boyut[0]}x{ham_boyut[1]}",
         "jpeg_kalite": en_iyi,
         "hedef_bayt_piksel": round(hedef_bpp, 4),
+        "hedef_oran": round(hedef_oran, 4),
         "bayt": bayt,
         "bayt_piksel": round(bayt / piksel, 4),
     }
@@ -185,6 +207,11 @@ def main() -> int:
     a.add_argument("--kayit", type=Path, help="üretim kaydı JSON (dosya → tur/komut/uretici)")
     a.add_argument("--profil", action="store_true", help="yalnızca gerçek korpus profilini bas")
     a.add_argument(
+        "--ekle",
+        action="store_true",
+        help="mevcut korpusun üzerine ekle (varsayılan: sıfırdan kur)",
+    )
+    a.add_argument(
         "--bicim-uygulanmis",
         action="store_true",
         help="görseller zaten biçim profiline oturtulmuş (Colab defteri) — yeniden kodlama",
@@ -213,7 +240,14 @@ def main() -> int:
             return 1
 
     kayitlar: list[dict] = []
+    if args.ekle and (mevcut := HEDEF / "kayitlar.jsonl").exists():
+        kayitlar = [
+            json.loads(satir) for satir in mevcut.read_text(encoding="utf-8").splitlines() if satir
+        ]
+        print(f"  mevcut korpus: {len(kayitlar)} kayıt (üzerine ekleniyor)")
+    varolan_adlar = {k["dosya"] for k in kayitlar}
     atlanan = 0
+    zaten = 0
     for kayit in uretim:
         kaynak = args.ham / kayit["dosya"]
         if not kaynak.exists():
@@ -227,6 +261,9 @@ def main() -> int:
             if kayit["dosya"].startswith("SYNTH_")
             else f"SYNTH_{_slug(kayit['tur'])}_{_slug(kayit['uretici'])}_{len(kayitlar):04d}.jpg"
         )
+        if ad in varolan_adlar:
+            zaten += 1
+            continue
         olcum = (
             _oldugu_gibi(kaynak, goruntuler / ad)
             if args.bicim_uygulanmis
@@ -236,6 +273,8 @@ def main() -> int:
 
     if atlanan:
         print(f"⚠ {atlanan} ham görsel bulunamadı, atlandı")
+    if zaten:
+        print(f"  {zaten} kayıt korpusta zaten vardı, atlandı")
     if not kayitlar:
         print("🔴 hiç görsel işlenmedi")
         return 1
