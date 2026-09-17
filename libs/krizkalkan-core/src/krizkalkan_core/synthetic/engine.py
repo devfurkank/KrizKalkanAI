@@ -34,6 +34,14 @@ from krizkalkan_core.synthetic.c2pa import dogrula as c2pa_dogrula
 
 logger = logging.getLogger(__name__)
 
+#: Kanıt panelinde "üretim izi bulundu" yazmak için gereken ham skor.
+#:
+#: Ölçümden seçildi (scripts/eval/m4_synthetic.py · KARAR_ESIGI). Bu değer
+#: KARAR VERMEZ — sınıfı füzyon, kalibre skor üzerinden kurar. Yalnızca
+#: kullanıcıya gösterilen cümleyi belirler; ikisinin ayrı düşmesi, panelde
+#: "iz bulunamadı" yazarken sınıfın SENTETİK_MEDYA çıkması demek olurdu.
+URETIM_ETIKET_ESIGI = 0.70
+
 #: Parmak izi bundan uzunsa bir dosya yolu değil, demo tanımlayıcısıdır.
 _YOL_UZUNLUK_SINIRI = 400
 
@@ -185,7 +193,7 @@ def _goruntu_sinyalleri(yol: Path) -> list[Signal] | None:
                     kind="kare",
                     label=(
                         "Görüntüde yapay üretim izi bulundu"
-                        if sonuc.uretim_skoru >= 0.5
+                        if sonuc.uretim_skoru >= URETIM_ETIKET_ESIGI
                         else "Belirgin üretim artefaktı bulunamadı"
                     ),
                     locator="tam kare · iki bağımsız detektör",

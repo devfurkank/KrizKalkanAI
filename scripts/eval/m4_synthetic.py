@@ -53,15 +53,43 @@ MODEL_DIZINI = REPO_ROOT / "models" / MODEL_ADI
 RAPOR = REPO_ROOT / "docs" / "metrikler" / "m4.md"
 AFET_KORPUSU = REPO_ROOT / "data" / "external" / "provenance"
 URETILMIS_AFET = REPO_ROOT / "data" / "external" / "sentetik"
+OLAY_AYRIMI = REPO_ROOT / "scripts" / "data" / "kumeler" / "afet_olay_ayrimi.json"
+
+
+def _tutulan_olaylar() -> set[str]:
+    """Eğitime girmemiş afet olayları — kapı yalnızca burada ölçülür."""
+    if not OLAY_AYRIMI.exists():
+        return set()
+    return set(json.loads(OLAY_AYRIMI.read_text(encoding="utf-8"))["tutulan_olaylar"])
+
 
 #: Çapraz veri kümesi. Detektörlerin eğitiminde kullanılmadı; 2026 tarihli
 #: üreticiler içeriyor, yani gerçek bir "görülmemiş üretici" testi.
 CAPRAZ_DEPO = "ComplexDataLab/OpenFake"
 CAPRAZ_DOSYA = "core/test-00000-of-00013.parquet"
 
-#: Üretim skoru bu eşiğin üzerindeyse "üretilmiş" sayılır. Eşik ölçümden
-#: seçilir; betik eşik taramasını da basar.
-KARAR_ESIGI = 0.50
+#: Üretim skoru bu eşiğin üzerindeyse "üretilmiş" sayılır.
+#:
+#: **0,70 ölçümden seçildi; 0,50 seçilmemişti.** Önceki değer bir varsayılandı
+#: ve hiçbir ölçüme dayanmıyordu. v2 ağırlığında eşik taraması yapıldı
+#: (tutulan olaylar n=130 · tutulan üreticiler n=285):
+#:
+#:     eşik   özgüllük   duyarlılık   z_image
+#:     0,50     0,9385      0,9544      0,6286   ← özgüllük kısıtı SAĞLANMIYOR
+#:     0,60     0,9462      0,9263      0,4000   ← sağlanmıyor
+#:     0,70     0,9615      0,9193      0,3429   ← sağlanan EN DÜŞÜK eşik
+#:     0,80     0,9769      0,8947      0,2000
+#:     0,90     1,0000      0,8632      0,1143
+#:
+#: Kısıtı sağlayan en düşük eşik seçildi: eşik yükseldikçe özgüllük artıyor ama
+#: mimari olarak bağımsız tek tutulan üreticide (z_image) yakalama çöküyor
+#: (%63 → %11). En düşük geçerli eşik, en zor üreticide en çok yakalamayı verir.
+#:
+#: ⚠ Eşik, özgüllüğün ÖLÇÜLDÜĞÜ kümede seçildi; bu bir seçim yanlılığıdır ve
+#: 0,9615 değeri iyimser okunmalıdır (5 yanlış pozitif / 130, %95 güven aralığı
+#: yaklaşık 0,91–0,98). Dört ardışık eşiğin kısıtı sağlaması, seçimin tek bir
+#: noktaya oturmadığını gösterir.
+KARAR_ESIGI = 0.70
 
 #: Kabul kapısının eşiği — `synthetic/image.py` ile aynı değer olmalıdır.
 KABUL_ESIGI = 0.95
@@ -183,8 +211,19 @@ def afet_kume(sinir: int, tohum: int) -> list[Ornek]:
         return []
 
     kayitlar = [json.loads(s) for s in kayit_dosyasi.read_text(encoding="utf-8").splitlines() if s]
+    tutulan = _tutulan_olaylar()
+    if not tutulan:
+        print("  🔴 olay ayrımı dosyası yok — kapı eğitim verisinde ölçülür, GÜVENİLMEZ")
     ornekler: list[Ornek] = []
+    atlanan = 0
     for kayit in kayitlar:
+        # Kapı YALNIZCA tutulan olaylarda ölçülür. Eğitimde görülmüş bir
+        # fotoğrafta ölçmek, kapıyı kendi kendine geçirmektir: model o kareyi
+        # zaten öğrenmiştir. Ölçüldü — ilk koşuda korpusun %80'i eğitimdeydi
+        # ama metrik tamamında hesaplanıyordu.
+        if tutulan and kayit.get("olay") not in tutulan:
+            atlanan += 1
+            continue
         yol = AFET_KORPUSU / "goruntuler" / kayit["dosya"]
         if yol.exists():
             ornekler.append(
@@ -195,6 +234,8 @@ def afet_kume(sinir: int, tohum: int) -> list[Ornek]:
                     uretici=kayit.get("olay", "afet"),
                 )
             )
+    if atlanan:
+        print(f"  {atlanan} fotoğraf eğitim olaylarından, ölçüme GİRMEDİ")
     random.Random(tohum).shuffle(ornekler)
     return ornekler[: sinir or len(ornekler)]
 
@@ -221,10 +262,16 @@ def uretilmis_afet_kume() -> list[Ornek]:
         return []
 
     ornekler: list[Ornek] = []
+    atlanan = 0
     for satir in kayit_dosyasi.read_text(encoding="utf-8").splitlines():
         if not satir:
             continue
         kayit = json.loads(satir)
+        # YALNIZCA tutulan üreticiler. Eğitimde kullanılmış bir görselde
+        # duyarlılık ölçmek, ezberi genelleme sanmaktır.
+        if kayit.get("rol") != "tutulan":
+            atlanan += 1
+            continue
         yol = URETILMIS_AFET / "goruntuler" / kayit["dosya"]
         if yol.exists():
             ornekler.append(
@@ -232,9 +279,11 @@ def uretilmis_afet_kume() -> list[Ornek]:
                     bayt=yol.read_bytes(),
                     ad=kayit["dosya"],
                     etiket=1,
-                    uretici=f"{kayit['uretici']} · {kayit['tur']}",
+                    uretici=kayit.get("kod", kayit["uretici"]),
                 )
             )
+    if atlanan:
+        print(f"  {atlanan} görsel eğitim rolünde, ölçüme GİRMEDİ")
     return ornekler
 
 
@@ -266,19 +315,49 @@ def _gecici_yaz(ornek: Ornek, dizin: Path) -> Path:
 ONBELLEK = REPO_ROOT / "data" / "interim" / "m4_skorlar.json"
 
 
-def _onbellek_anahtari(ornek: Ornek) -> str:
-    """Önbellek anahtarı: dosya adı DEĞİL, içerik özeti.
+def model_parmak_izi(dizin: Path) -> str:
+    """Ağırlığın kimliği — önbellek anahtarının önekine girer.
 
-    Dosya adıyla anahtarlamak sessiz bir bozulma üretiyordu. Köken korpusu
-    görüntüleri indirme sırasına göre numaralandırıyor ve korpus yenilendiğinde
-    `00386.jpg` başka bir görüntüye denk gelebiliyor; önbellek o adı görüp eski
-    skoru döndürüyor ve ölçüm, hiç bakmadığı bir görüntü hakkında konuşuyor.
-
-    İçerik özeti bu sınıf hatayı tümden kapatır: bayt değişirse anahtar değişir.
+    Tam dosya özeti alınmaz (372 MB, her koşuda saniyeler); boyut ile ilk ve son
+    1 MB birlikte, ağırlık değiştiğinde değişmesi güvence altında olan ucuz bir
+    imza verir. ONNX başlığı ve ağırlık kuyruğu her eğitimde farklıdır.
     """
     import hashlib
 
-    return hashlib.blake2b(ornek.bayt, digest_size=16).hexdigest()
+    h = hashlib.blake2b(digest_size=8)
+    for ad in ("uretim.onnx", "onisleme.json"):
+        p = dizin / ad
+        if not p.exists():
+            continue
+        boyut = p.stat().st_size
+        h.update(f"{ad}:{boyut}".encode())
+        with p.open("rb") as f:
+            h.update(f.read(1 << 20))
+            if boyut > (1 << 21):
+                f.seek(-(1 << 20), 2)
+                h.update(f.read())
+    return h.hexdigest()
+
+
+def _onbellek_anahtari(ornek: Ornek, parmak: str) -> str:
+    """Önbellek anahtarı: MODEL KİMLİĞİ + içerik özeti.
+
+    İki ayrı sessiz bozulma kapatılıyor.
+
+    **Dosya adı yerine içerik özeti.** Köken korpusu görüntüleri indirme
+    sırasına göre numaralandırıyor; korpus yenilendiğinde `00386.jpg` başka bir
+    görüntüye denk gelebiliyor ve önbellek o adı görüp eski skoru döndürüyordu.
+    Ölçüm, hiç bakmadığı bir görüntü hakkında konuşuyordu.
+
+    **İçerik özetine ek olarak model kimliği.** Anahtar yalnızca görüntüye
+    bağlıyken ağırlık değiştirildiğinde önbellek ESKİ MODELİN skorlarını
+    döndürüyordu: yeni ağırlık ölçülüyor sanılırken eskisinin sayıları
+    raporlanıyordu. v2 devreye alınırken yakalandı; o koşu yapılsaydı kart
+    baştan sona yanlış olurdu.
+    """
+    import hashlib
+
+    return f"{parmak}:{hashlib.blake2b(ornek.bayt, digest_size=16).hexdigest()}"
 
 
 def _onbellek_oku() -> dict[str, dict]:
@@ -300,6 +379,7 @@ def kos(
     ornekler: list[Ornek],
     baslik: str,
     onbellek: dict[str, dict] | None = None,
+    parmak: str = "",
 ) -> list[Sonuc]:
     """Örnekleri modelden geçirir; ilerlemeyi basar.
 
@@ -313,7 +393,10 @@ def kos(
     with tempfile.TemporaryDirectory() as gecici:
         dizin = Path(gecici)
         for sira, ornek in enumerate(ornekler, 1):
-            if bolum is not None and (kayit := bolum.get(_onbellek_anahtari(ornek))) is not None:
+            if (
+                bolum is not None
+                and (kayit := bolum.get(_onbellek_anahtari(ornek, parmak))) is not None
+            ):
                 sonuclar.append(
                     Sonuc(
                         etiket=kayit["etiket"],
@@ -342,7 +425,7 @@ def kos(
 
             sonuclar.append(sonuc)
             if bolum is not None:
-                bolum[_onbellek_anahtari(ornek)] = {
+                bolum[_onbellek_anahtari(ornek, parmak)] = {
                     "etiket": sonuc.etiket,
                     "uretici": sonuc.uretici,
                     "skor": sonuc.skor,
@@ -568,6 +651,7 @@ def tur_analizi(
     kumeler: dict[str, list[Ornek]],
     sinir: int,
     onbellek: dict[str, dict] | None = None,
+    parmak: str = "",
 ) -> dict | None:
     """Üç sınıflı detektörün karara katılmaya hazır olup olmadığını ölçer.
 
@@ -590,7 +674,7 @@ def tur_analizi(
             for ornek in ornekler[:sinir]:
                 if (
                     bolum is not None
-                    and (kayit := bolum.get(_onbellek_anahtari(ornek))) is not None
+                    and (kayit := bolum.get(_onbellek_anahtari(ornek, parmak))) is not None
                 ):
                     skorlar = kayit["skorlar"]
                 else:
@@ -601,7 +685,7 @@ def tur_analizi(
                         yol.unlink(missing_ok=True)
                     skorlar = None if cikti.cekindi else cikti.tur_skorlari
                     if bolum is not None:
-                        bolum[_onbellek_anahtari(ornek)] = {"skorlar": skorlar}
+                        bolum[_onbellek_anahtari(ornek, parmak)] = {"skorlar": skorlar}
                 if not skorlar:
                     continue
                 dagilim[max(skorlar, key=lambda k: skorlar[k])] += 1
@@ -654,7 +738,10 @@ def _donustur(bayt: bytes, ad: str, donusum: str) -> bytes:
 
 
 def dayaniklilik(
-    model: SentetikGoruntuModeli, ornekler: list[Ornek], onbellek: dict[str, dict] | None = None
+    model: SentetikGoruntuModeli,
+    ornekler: list[Ornek],
+    onbellek: dict[str, dict] | None = None,
+    parmak: str = "",
 ) -> dict:
     """Her dönüşüm altında duyarlılık — yalnızca üretilmiş örnekler üzerinde."""
     uretilmis = [o for o in ornekler if o.etiket == 1]
@@ -664,7 +751,7 @@ def dayaniklilik(
             Ornek(_donustur(o.bayt, o.ad, donusum), f"{donusum}_{o.ad}", 1, o.uretici)
             for o in uretilmis
         ]
-        sonuclar = kos(model, donusmus, f"dayanıklılık/{donusum}", onbellek)
+        sonuclar = kos(model, donusmus, f"dayanıklılık/{donusum}", onbellek, parmak)
         karar = [s for s in sonuclar if s.skor is not None]
         tablo[donusum] = {
             "n": len(sonuclar),
@@ -1162,21 +1249,22 @@ def main() -> int:
         print("   Önce: python scripts/data/build_synthetic.py")
         return 1
 
-    print(f"→ ağırlık dizini: {dizin.name}")
+    parmak = model_parmak_izi(dizin)
+    print(f"→ ağırlık dizini: {dizin.name} · parmak izi {parmak}")
     model = SentetikGoruntuModeli(dizin)
     onbellek: dict[str, dict] | None = None if args.onbellek_yok else _onbellek_oku()
 
     print("═══ 1/6 çapraz veri kümesi ═══")
     capraz_ornekler = capraz_kume(args.sinir, args.tohum)
     print(f"  {len(capraz_ornekler)} örnek · {len({o.uretici for o in capraz_ornekler})} aile")
-    capraz_sonuclar = kos(model, capraz_ornekler, "çapraz", onbellek)
+    capraz_sonuclar = kos(model, capraz_ornekler, "çapraz", onbellek, parmak)
     capraz = ozetle(capraz_sonuclar)
     print(f"  AUC {capraz.get('auc', float('nan')):.4f} · çekinme {capraz['cekinme_orani']:.4f}")
 
     print("\n═══ 2/6 afet alanı · yanlış pozitif ═══")
     afet_ornekler = afet_kume(args.afet_sinir, args.tohum)
     if afet_ornekler:
-        afet_sonuclar = kos(model, afet_ornekler, "afet", onbellek)
+        afet_sonuclar = kos(model, afet_ornekler, "afet", onbellek, parmak)
         afet = ozetle(afet_sonuclar)
         print(f"  yanlış pozitif {afet.get('yanlis_pozitif', 0):.4f} · n={afet['n_karar']}")
     else:
@@ -1186,7 +1274,7 @@ def main() -> int:
     print("\n═══ 3/6 afet alanı · DOĞRU POZİTİF ═══")
     uretilmis_ornekler = uretilmis_afet_kume()
     if uretilmis_ornekler:
-        uretilmis_sonuclar = kos(model, uretilmis_ornekler, "üretilmiş afet", onbellek)
+        uretilmis_sonuclar = kos(model, uretilmis_ornekler, "üretilmiş afet", onbellek, parmak)
         uretilmis = ozetle(uretilmis_sonuclar)
         print(
             f"  duyarlılık {uretilmis.get('duyarlilik', 0):.4f} · n={uretilmis['n_karar']}"
@@ -1208,6 +1296,7 @@ def main() -> int:
         },
         args.tur_sinir,
         onbellek,
+        parmak,
     )
 
     print("\n═══ 5/6 kalibrasyon ═══")
@@ -1221,7 +1310,7 @@ def main() -> int:
     if not args.atla_dayaniklilik:
         print("\n═══ 6/6 dayanıklılık ═══")
         alt_kume = [o for o in capraz_ornekler if o.etiket == 1][: args.dayaniklilik_sinir]
-        saglamlik = dayaniklilik(model, alt_kume, onbellek)
+        saglamlik = dayaniklilik(model, alt_kume, onbellek, parmak)
 
     if onbellek is not None:
         _onbellek_yaz(onbellek)

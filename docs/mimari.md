@@ -85,7 +85,7 @@ Metrik üreten her şey betiktir. Elle yazılmış tablo yoktur; her rapor üst�
 | M3 | Türkçe kriz metni | XLM-R çok görevli, int8 ONNX | `m3.md` |
 | M4 | C2PA köken üstverisi | kriptografik doğrulama · **manifest zinciri taranıyor** | testlerle |
 | M4 | Üretici üstverisi | ✅ **kural tabanlı · devrede** | `m4-ustveri.md` |
-| M4 | Sentetik görüntü | ⚠️ sıfırdan eğitildi · devrede · **kriz alanında kör** | `m4.md` |
+| M4 | Sentetik görüntü | ✅ **v2 · çift yönlü kapıyı geçti** | `m4.md` |
 | M4 | Hata seviyesi analizi | ⛔ kuruldu ve ölçüldü, **devreye alınmadı** | `m4-ela.md` |
 | M4 | Video, ses | ⏳ kare çıkarımı yok / ASVspoof | — |
 | M5 | Bilgi havuzu geri getirme | e5 gömme + indeks | `m5.md` |
@@ -367,6 +367,42 @@ yazılır ama uyarı hem ekrana hem `docs/metrikler/m6.md`'ye basılır (yetenek
 kaybı). Ayrıca `--kalibrasyon-yazma` bayrağı ölçümü üretimi değiştirmeden
 yapmayı sağlıyor.
 
+### M4 v2: kör nokta kapandı, üç sessiz hata daha yakalandı
+
+| Ölçüm | v1 (devredeydi) | **v2** |
+|---|---|---|
+| Çapraz veri kümesi AUC | 0,7871 | **0,8660** |
+| Medyan ayrımı | 0,0167 | **0,5165** |
+| Afet özgüllüğü (tutulan olay, n=130) | — ölçülmedi — | **0,9615** |
+| Afet duyarlılığı (tutulan üretici, n=285) | **0,0000** | **0,9193** |
+| M6 · SENTETİK_MEDYA F1 | 0,0000 | **0,5185** |
+| M6 · gerçek görselde yanlış suçlama | 5/320 | **0/320** |
+
+Değişen mimari değil, **veri tarifi**: üretilmiş afet görselleri (1700) pozitif
+sınıfa katıldı ve afet alanı içinde pozitif/negatif dengesi kuruldu.
+
+**Sınıf ağırlığı ters yazılmıştı.** Ağırlık tensörü MODEL sınıflarını indeksler
+(`0 = üretilmiş`), veri etiketlerini değil (`1 = üretilmiş`); eğitimde hedef
+`1 - y` ile çevriliyor. İlk koşuda çoğunluktaki sınıfa BÜYÜK ağırlık verilmişti
+(üretilmiş 1,483 · gerçek 0,517) — dengesizlik azaltılacağına artırılmıştı.
+Sonuç ölçüldü: duyarlılık 0,9789, özgüllük 0,6846. Defterde artık yönü denetleyen
+bir `assert` var: seyrek sınıfın ağırlığı büyük değilse hücre durur.
+
+**Karar eşiği hiç seçilmemişti.** 0,50 bir varsayılandı. Eşik taraması, dört
+ardışık eşiğin iki kısıtı da sağladığını gösterdi; kısıtı sağlayan **en düşük**
+eşik seçildi (0,70), çünkü eşik yükseldikçe mimari olarak bağımsız tek tutulan
+üreticide yakalama çöküyor (z_image %63 → %11).
+
+**Önbellek anahtarı modeli tanımıyordu.** `scripts/eval/m4_synthetic.py` skorları
+görüntü baytlarının özetiyle anahtarlıyordu; ağırlık değişince önbellek ESKİ
+MODELİN skorlarını döndürüyordu. v2 ölçülürken yakalandı — o koşu yapılsaydı
+kartın tamamı yanlış olurdu. Anahtara ağırlık parmak izi eklendi.
+
+**Değerlendirme betiği ayrımları uygulamıyordu.** Defterde olay ve rol bazlı
+ayrım kurulmuştu ama `m4_synthetic.py` özgüllüğü korpusun tamamında (786) ve
+duyarlılığı üretilmiş korpusun tamamında (1985) ölçüyordu — yani eğitim
+verisinde. Ayrımlar betiğe taşındı: artık 130 ve 285.
+
 ### Biçim, sınıfı ele veren gizli bir kanaldır
 
 Üretilmiş afet korpusu kurulurken üç ayrı biçim ipucu ölçüldü ve kapatıldı.
@@ -431,16 +467,21 @@ toplam yanlış suçlama 5/320 (%1,6).
   görüntünün doğal doku değişimini ölçüyor (`docs/metrikler/m4-ela.md`).
 - **M4 · video ve ses** kurulmadı. Video için kare çıkarımı (ffmpeg) yok; ses
   için ASVspoof üzerinde eğitim planlı.
-- **M4 · ALAN KÖR NOKTASI (en ciddi açık).** Üretilmiş afet görsellerinde
-  duyarlılık üreticiye göre değişiyor (n=1985 korpus, eşik 0,50):
-  hizalı VAE sahteleri **%1,6** · hizalı img2img **%7,6** · SANA **%31,5** ·
-  SDXL **%34,2** · PixArt-Σ **%34,4** · **z_image %0,0**. Tutulan üreticilerde
-  toplam duyarlılık **0,3018**. Ayrıntı: *M4'ün ölçülmemiş yarısı* bölümü.
+- **M4 · alan kör noktası KAPANDI (v2).** Üretilmiş afet görsellerinde
+  duyarlılık **0,0000 → 0,9193** (n=285 tutulan üretici). Gerçek afet
+  fotoğraflarında özgüllük **0,9615** (n=130 tutulan olay). Kabul kapısı ilk kez
+  iki yönden de geçti.
 - **M4 · tutulan üretici VAE'yi eğitimle paylaşıyor.** PixArt-Σ ile SDXL
   birebir aynı VAE'yi kullanıyor (`AutoencoderKL`, latent 4, scaling 0,13025).
   Eğitim pozitiflerinin 1100/1700'ü sdxl-vae izi taşıdığı için PixArt üzerinde
-  ölçülen genelleme **iyimserdir**. Mimari olarak bağımsız tek tutulan üretici
-  z_image'dır (n=35).
+  ölçülen genelleme **iyimserdir**: eşik 0,70'te PixArt %100, z_image %34.
+  Mimari olarak bağımsız tek tutulan üretici z_image'dır (n=35) ve gerçek
+  genelleme sayısı odur.
+- **M4 · karar eşiği ölçümde seçildi ama ölçüm kümesinde seçildi.** 0,70 değeri
+  özgüllüğün ölçüldüğü 130 fotoğrafta belirlendi; bu bir seçim yanlılığıdır ve
+  0,9615 iyimser okunmalıdır (5 yanlış pozitif / 130, %95 güven aralığı
+  ≈ 0,91–0,98). Dört ardışık eşiğin kısıtı sağlaması seçimi kırılgan olmaktan
+  çıkarır ama yanlılığı ortadan kaldırmaz.
 - **MANİPÜLE_MEDYA** sınıfı uçtan uca değerlendirme kümesinde yok — M2'yi
   gerektiriyor. Makro-F1 bu nedenle rapor 3.2'deki altı sınıflı hedefle
   doğrudan karşılaştırılamaz. SENTETİK_MEDYA sınıfı **eklendi** (n=35).

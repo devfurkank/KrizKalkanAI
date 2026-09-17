@@ -274,23 +274,91 @@ taşıyor ama CC BY-NC.
 > girmiyor**. `"genis"` sürümü yalnızca `train` bölümünü kullanıyor.
 """),
     kod("""
+import os
+import time
+
 from huggingface_hub import snapshot_download
 
-genimage = Path(snapshot_download(
-    "jhutter2/281_Genimage", repo_type="dataset",
-    local_dir=str(CALISMA / "genimage"), max_workers=8,
-))
+try:
+    from huggingface_hub.errors import HfHubHTTPError
+except ImportError:                      # eski huggingface_hub
+    from huggingface_hub.utils import HfHubHTTPError
 
-uretilmis_yollari, gercek_yollari = [], []
-for alt in genimage.iterdir():
-    if not alt.is_dir():
-        continue
-    for etiket, hedef in (("ai", uretilmis_yollari), ("nature", gercek_yollari)):
-        d = alt / etiket
-        if d.exists():
-            hedef.extend(p for p in d.iterdir() if p.suffix.lower() in {".png", ".jpg", ".jpeg"})
+GENIMAGE = CALISMA / "genimage"
+
+
+def _genimage_tara(kok: Path):
+    # İnmiş dosyaları ai/nature olarak ayırır.
+    uret, ger = [], []
+    if not kok.exists():
+        return uret, ger
+    for alt in kok.iterdir():
+        if not alt.is_dir():
+            continue
+        for etiket, liste in (("ai", uret), ("nature", ger)):
+            d = alt / etiket
+            if d.exists():
+                liste.extend(p for p in d.iterdir()
+                             if p.suffix.lower() in {".png", ".jpg", ".jpeg"})
+    return uret, ger
+
+
+# ── HF_TOKEN ──
+#
+# 429'un asıl sebebi eşzamanlılık değil, KİMLİK DOĞRULANMAMIŞ istektir:
+# Colab çıkış IP'leri paylaşımlıdır ve anonim kota oradan bölüşülür. Token
+# varsa kota kullanıcıya bağlanır, hem 429 biter hem indirme hızlanır.
+#
+# Eklemek 1 dakika: Colab sol menü → 🔑 Secrets → "HF_TOKEN" adıyla
+# huggingface.co/settings/tokens adresinden alınmış bir "read" jetonu.
+_jeton = os.environ.get("HF_TOKEN")
+if not _jeton:
+    try:
+        from google.colab import userdata
+        _jeton = userdata.get("HF_TOKEN")
+    except Exception:
+        _jeton = None
+
+if _jeton:
+    print("✓ HF_TOKEN bulundu — yüksek kota, hızlı indirme")
+    _isci = 8
+else:
+    print("⚠ HF_TOKEN yok. İndirme yavaş olacak ve 429 alabilirsiniz.")
+    print("  Colab → 🔑 Secrets → HF_TOKEN ekleyip bu hücreyi tekrar çalıştırın;")
+    print("  inen dosyalar korunur, kaldığı yerden devam eder.")
+    _isci = 4
+
+# Zaten inmişse tekrar indirme. Hücre yeniden çalıştırıldığında HuggingFace'e
+# gereksiz istek atmak, 429'un ta kendisini tetikliyor.
+uretilmis_yollari, gercek_yollari = _genimage_tara(GENIMAGE)
+
+if len(uretilmis_yollari) < 100:
+    # Dış döngü, snapshot_download'ın kendi iç yeniden denemesi TÜKENİRSE
+    # devreye girer (özellikle dosya listeleme adımında).
+    for deneme in range(1, 8):
+        try:
+            snapshot_download("jhutter2/281_Genimage", repo_type="dataset",
+                              local_dir=str(GENIMAGE), max_workers=_isci,
+                              token=_jeton)
+            break
+        except HfHubHTTPError as hata:
+            if "429" not in str(hata) and "Too Many Requests" not in str(hata):
+                raise
+            bekle = min(90, 10 * 2 ** (deneme - 1))
+            print(f"  ⏳ HuggingFace 429 (deneme {deneme}/7) — {bekle} sn bekleniyor…")
+            time.sleep(bekle)
+    else:
+        raise RuntimeError(
+            "HuggingFace 7 denemede de 429 döndü. Seçenekler: (a) birkaç dakika "
+            "bekleyip hücreyi tekrar çalıştırın — inen dosyalar korunur, "
+            "(b) Colab → 🔑 Secrets → HF_TOKEN ekleyin. (b) kalıcı çözümdür."
+        )
+    uretilmis_yollari, gercek_yollari = _genimage_tara(GENIMAGE)
 
 print(f"GenImage → üretilmiş {len(uretilmis_yollari)} · gerçek {len(gercek_yollari)}")
+assert uretilmis_yollari and gercek_yollari, (
+    "GenImage boş indi — hücreyi tekrar çalıştırın (yarım inen dosyalar korunur)"
+)
 """),
     kod("""
 # OpenFakeTiny — yalnızca "genis" sürümünde
@@ -422,32 +490,62 @@ sentetik_afet = [(p, 1) for p in sentetik_egitim]
 afet = [(p, 0) for p in afet_egitim]
 rastgele.shuffle(afet)
 afet_bol = int(len(afet) * 0.85)   # küçük bir kısmı doğrulamaya
+afet_egt, afet_dog = afet[:afet_bol], afet[afet_bol:]
+
+# ── ALAN İÇİ DENGE ──
+#
+# Global sınıf ağırlığı, ALAN İÇİ dengesizliği düzeltmez. Afet alanında
+# 1700 üretilmiş görsele karşılık yalnızca ~557 gerçek fotoğraf var; model
+# global dengeyi tutturup afet alanının içinde yine "üretilmiş" tarafına
+# kayabilir. Ölçüldü: ilk koşuda tam bu oldu — duyarlılık 0,9789, özgüllük
+# 0,6846.
+#
+# Gerçek afet fotoğrafları alan dengelenene kadar çoğaltılır. Kopyalar aynı
+# değildir: artırma her geçişte farklı JPEG kalitesi, ölçek ve kırpma uygular.
+AFET_DENGE = True
+_tekrar = max(1, round(len(sentetik_afet) / max(len(afet_egt), 1))) if AFET_DENGE else 1
+afet_egt_dengeli = afet_egt * _tekrar
+print(f"afet alanı dengesi: {len(sentetik_afet)} üretilmiş / {len(afet_egt)} gerçek "
+      f"→ gerçek {_tekrar}× çoğaltıldı = {len(afet_egt_dengeli)}")
 
 tum = uretilmis + gercek + sentetik_afet
 rastgele.shuffle(tum)
 bol = int(len(tum) * 0.9)
 
-egitim_ogeleri    = tum[:bol] + afet[:afet_bol]
-dogrulama_ogeleri = tum[bol:] + afet[afet_bol:]
+egitim_ogeleri    = tum[:bol] + afet_egt_dengeli
+dogrulama_ogeleri = tum[bol:] + afet_dog
 rastgele.shuffle(egitim_ogeleri); rastgele.shuffle(dogrulama_ogeleri)
 
-_poz = sum(e for _, e in egitim_ogeleri)
+_poz = sum(e for _, e in egitim_ogeleri)          # veri etiketi 1 = üretilmiş
 _neg = len(egitim_ogeleri) - _poz
 print(f"eğitim    : {len(egitim_ogeleri):6d}  (üretilmiş {_poz} · gerçek {_neg})")
 print(f"doğrulama : {len(dogrulama_ogeleri):6d}  (üretilmiş {sum(e for _, e in dogrulama_ogeleri)})")
 print(f"  üretilmiş afet (yeni) : {len(sentetik_afet)}")
-print(f"  gerçek afet (eğitim)  : {len(afet)}")
+print(f"  gerçek afet (eğitim)  : {len(afet_egt)} → {len(afet_egt_dengeli)} (çoğaltılmış)")
 print(f"  gerçek afet (TUTULAN) : {len(afet_tutulan)}  ← eğitime girmedi")
 print(f"  üretilmiş (TUTULAN)   : {len(sentetik_tutulan)}  ← eğitime girmedi")
 
 # ── Sınıf ağırlığı ──
 #
-# Pozitif sınıf negatiften kalabalık. Az örneklemek veri atmak olurdu; bunun
-# yerine kayıp fonksiyonu dengeleniyor. Ağırlık ölçülen orandan türetilir,
-# elle seçilmez.
-_agirlik = torch.tensor([_poz / _neg, 1.0], dtype=torch.float32)
+# DİKKAT: ağırlık tensörü MODEL sınıflarını indeksler, veri etiketlerini değil.
+#   model 0 = üretilmiş   ·   model 1 = gerçek
+# Eğitimde hedef `1 - y` ile çevriliyor (veri etiketi 1 = üretilmiş).
+#
+# İlk sürümde bu ters yazılmıştı: çoğunluktaki sınıfa BÜYÜK ağırlık verilmiş,
+# dengesizlik azaltılacağına artırılmıştı. Sonuç ölçüldü — duyarlılık 0,9789,
+# özgüllük 0,6846. Doğrusu ters frekans: seyrek sınıf ağır basar.
+_sayim = {0: _poz, 1: _neg}          # model sınıfı → örnek sayısı
+_agirlik = torch.tensor([1.0 / _sayim[0], 1.0 / _sayim[1]], dtype=torch.float32)
 _agirlik = _agirlik / _agirlik.mean()
-print(f"sınıf ağırlığı (gerçek, üretilmiş): {_agirlik.tolist()}")
+
+# Yön denetimi: seyrek sınıfın ağırlığı BÜYÜK olmak zorunda. Bu satır, aynı
+# hatanın sessizce tekrarlanmasını imkânsız kılar.
+_seyrek = 0 if _sayim[0] < _sayim[1] else 1
+assert _agirlik[_seyrek] > _agirlik[1 - _seyrek], (
+    f"sınıf ağırlığı TERS: sayım={_sayim} ağırlık={_agirlik.tolist()}"
+)
+print(f"sınıf ağırlığı  model0=üretilmiş {_agirlik[0]:.3f} · "
+      f"model1=gerçek {_agirlik[1]:.3f}  (seyrek sınıf ağır basıyor ✓)")
 
 egitim_yukleyici = DataLoader(GoruntuKumesi(egitim_ogeleri, True), batch_size=YIGIN,
                               shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
@@ -630,10 +728,44 @@ for _u, _l in sorted(tutulan_uretici.items()):
     print(f"  {_u:16s} n={len(_l):4d}  duyarlılık {float((_s >= 0.5).mean()):.4f}")
 print()
 _gecti = afet_ozgulluk >= KAPI_OZGULLUK and afet_duyarlilik >= KAPI_DUYARLILIK
-print(f"ÇİFT YÖNLÜ KAPI    : {'GEÇTİ' if _gecti else 'GEÇEMEDİ'}")
+print(f"ÇİFT YÖNLÜ KAPI    : {'GEÇTİ ✓' if _gecti else 'GEÇEMEDİ ✗'}")
 if not _gecti:
-    print("  → Tek yön yetmez. Özgüllük yüksek + duyarlılık düşük = 'her şeye gerçek'")
-    print("    diyen bir model demektir ve önceki sürümün hatası buydu.")
+    if afet_ozgulluk < KAPI_OZGULLUK and afet_duyarlilik >= KAPI_DUYARLILIK:
+        print("  → YANLIŞ SUÇLAMA yönünde kaldı: gerçek afet fotoğraflarının "
+              f"%{(1-afet_ozgulluk)*100:.1f}'i 'üretilmiş' çıkıyor.")
+        print("    Bu, kaçırmaktan DAHA ZARARLIDIR. Karar sınırı gerçek tarafına çekilmeli:")
+        print("    sınıf ağırlığı yönü, afet alanı dengesi ya da karar eşiği.")
+    elif afet_duyarlilik < KAPI_DUYARLILIK and afet_ozgulluk >= KAPI_OZGULLUK:
+        print("  → KAÇIRMA yönünde kaldı: model 'her şeye gerçek' diyerek özgüllüğü "
+              "geçiyor. Önceki sürümün hatası buydu.")
+    else:
+        print("  → Her iki yönde de kaldı: model henüz ayrıştırmıyor.")
+
+# ── Eşik taraması ──
+#
+# Kapı 0,50'de ölçülür ama 0,50 ölçümden seçilmiş bir değer DEĞİLDİR. Bu tablo,
+# iki kısıtı birlikte sağlayan bir çalışma noktası olup olmadığını gösterir.
+# Olmaması, eşiği değil MODELİ düzeltmek gerektiği anlamına gelir.
+print()
+print("EŞİK TARAMASI       özgüllük(tutulan olay)  duyarlılık(tutulan üretici)")
+_uygun = []
+for _e in (0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.98):
+    _oz = 1.0 - float((afet_skor >= _e).mean())
+    _du = float((sentetik_skor >= _e).mean())
+    _ok = _oz >= KAPI_OZGULLUK and _du >= KAPI_DUYARLILIK
+    if _ok:
+        _uygun.append((_e, _oz, _du))
+    print(f"  eşik {_e:.2f}        {_oz:.4f}                 {_du:.4f}   {'✓ İKİSİ DE' if _ok else ''}")
+if _uygun:
+    _en = max(_uygun, key=lambda t: t[2])
+    print()
+    print(f"  → İki kısıtı da sağlayan eşik VAR. En iyisi {_en[0]:.2f}: "
+          f"özgüllük {_en[1]:.4f} · duyarlılık {_en[2]:.4f}")
+    print("    Karar eşiğini değiştirmek DEPO SÖZLEŞMESİDİR (KARAR_ESIGI); Ömer'e bildirin.")
+else:
+    print()
+    print("  → Hiçbir eşik iki kısıtı birlikte sağlamıyor. Sorun eşikte değil,")
+    print("    modelin ayrıştırma gücünde. Veri tarifi değişmeli.")
 print()
 print(f"üretilmiş medyan {np.median(capraz_skor[capraz_etiket==1]):.4f} · "
       f"gerçek medyan {np.median(capraz_skor[capraz_etiket==0]):.4f} · "
@@ -759,12 +891,17 @@ import datetime
     "etiketler": ["sentetik", "manipüle", "gerçek"],
 }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-lisans = ("MIT (GenImage) · CC BY-SA 4.0 (Wikimedia afet korpusu)" if MODEL_SURUMU == "temiz"
-          else "CC BY-NC 4.0 — OpenFake eğitime katıldı, TİCARİ KULLANIMA KAPALI")
+# GenImage'ın özgün lisansı CC BY-NC-SA 4.0'dır; jhutter2 aynasının "mit"
+# etiketi bunu geçersiz kılmaz. Bu satır önceden "MIT" diyordu ve yanlıştı.
+lisans = ("CC BY-NC-SA 4.0 (GenImage) · CC BY-SA 4.0 (Wikimedia afet korpusu) · "
+          "Apache-2.0 + OpenRAIL++-M (üretilmiş afet korpusu) — TİCARİ KULLANIMA KAPALI"
+          if MODEL_SURUMU == "temiz"
+          else "CC BY-NC-SA 4.0 + CC BY-NC 4.0 (OpenFake) — TİCARİ KULLANIMA KAPALI")
 egitim_verisi = ["jhutter2/281_Genimage (CC BY-NC-SA 4.0 — ayna 'MIT' diyor, özgün GenImage lisansı NC-SA) · ADM, SD 1.5, wukong + ImageNet gerçekleri",
                  f"Üretilmiş afet korpusu · {len(sentetik_egitim)} görsel pozitif sınıfta "
                  "(SANA 1.6B Apache-2.0 · SDXL OpenRAIL++-M · hizalı VAE/img2img)",
-                 f"Wikimedia Commons Türkiye afet korpusu · {afet_sinir} görüntü negatif sınıfta"]
+                 f"Wikimedia Commons Türkiye afet korpusu · {len(afet_egitim)} görüntü negatif "
+                 f"sınıfta ({len(afet_tutulan)} tutulan olay eğitime girmedi)"]
 if MODEL_SURUMU == "genis":
     egitim_verisi.append("ComplexDataLab/OpenFakeTiny core/train (CC BY-NC 4.0) · 2026 üreticileri")
 
