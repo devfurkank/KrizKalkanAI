@@ -56,8 +56,19 @@ UZAK_SEHIRLER = ("İzmir", "Trabzon", "Edirne", "Rize", "Aydın", "Samsun", "Bur
 #: Afet türüne göre iddia şablonları — sahne uyuşmazlığı vakaları için.
 #: Konum bilinçli olarak KULLANILMAZ: bu vakalarda ölçülen sahne çelişkisidir,
 #: konum çelişkisi değil. İkisi karışırsa hangi sinyalin çalıştığı belirsizleşir.
+#: ⚠️ Şablonlar YARDIM ÇAĞRISI İFADESİ TAŞIYAMAZ.
+#:
+#: Deprem şablonu önce "…enkaz altında insanlar var." idi. Ölçüldü: yardım
+#: çağrısı skoru 0,850, Kural 0 eşiği 0,35. Kural 0 devreye girince boru hattı
+#: sınıfı TEMİZ'e çeviriyor (pipeline.py · protected_by_rule_zero) — bu DOĞRU
+#: davranıştır, yardım çağrısına müdahale edilmez.
+#:
+#: Ama o metni ölçüm kümesinde kullanmak, ölçmek istediğimiz şeyi maskeliyordu:
+#: SENTETİK_MEDYA vakalarının 38/60'ı görselden bağımsız olarak TEMİZ çıkıyordu.
+#: Bildirilen F1 0,5185, modelin değil metnin eseriydi. Kural 0 ayrıca test
+#: ediliyor; burada ölçülen şey medya sinyalinin sınıfı kurup kurmadığıdır.
 TUR_SABLONLARI: dict[str, str] = {
-    "deprem": "Deprem sonrası binalar yıkıldı, enkaz altında insanlar var.",
+    "deprem": "Deprem sonrası binalar yıkıldı, sokaklar molozla doldu.",
     "yangın": "Orman yangını çıktı, alevler hızla yayılıyor.",
     "sel": "Sel suları bastı, her yer sular altında kaldı.",
 }

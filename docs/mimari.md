@@ -367,6 +367,42 @@ yazılır ama uyarı hem ekrana hem `docs/metrikler/m6.md`'ye basılır (yetenek
 kaybı). Ayrıca `--kalibrasyon-yazma` bayrağı ölçümü üretimi değiştirmeden
 yapmayı sağlıyor.
 
+### Kural 0, ölçüm kümesini de maskeleyebilir
+
+M4 v2 devreye alındıktan sonra M6'da SENTETİK_MEDYA F1'i 0,5185 çıktı. Model
+tutulan üreticilerde %91,9 yakalarken uçtan uca yalnızca %52 doğru sınıflıyordu;
+arada bir şey vardı.
+
+Sebep kümenin metnindeydi. Sentetik vakalar, sahne uyumlu TEMİZ vakalarıyla aynı
+şablonu kullanıyordu — bu bilinçli bir seçimdi, iki sınıf arasındaki tek farkın
+görüntü olması için. Ama deprem şablonu şöyleydi:
+
+> *"Deprem sonrası binalar yıkıldı, **enkaz altında insanlar var.**"*
+
+Yardım çağrısı skoru **0,850**, Kural 0 eşiği **0,35**. Kural 0 devreye girince
+boru hattı sınıfı TEMİZ'e çeviriyor (`pipeline.py` · `protected_by_rule_zero`).
+
+**Bu davranış doğrudur ve değiştirilmedi.** Yardım çağrısına müdahale edilmez —
+görüntünün üretilmiş olması bunu değiştirmez. Hatalı olan, o metni *medya
+sinyalini ölçmek için* kullanmaktı: 60 sentetik vakanın 38'i görüntüden bağımsız
+olarak TEMİZ çıkıyordu.
+
+Şablon, anlamı korunarak yardım çağrısı ifadesinden arındırıldı
+(*"…sokaklar molozla doldu."*, yardım skoru 0,000). Kural 0 kendi testleriyle
+ayrıca doğrulanıyor.
+
+| | Maskeliyken | Düzeltilince |
+|---|---|---|
+| Makro-F1 | 0,5247 | **0,6199** |
+| SENTETİK_MEDYA F1 | 0,5185 | **0,9655** |
+| SENTETİK_MEDYA doğru | 21/60 | **56/60** |
+| Gerçek görselde yanlış suçlama | 0/320 | **0/320** |
+
+Kümenin tamamı Kural 0 açısından tarandı: DOĞRULANMAMIŞ_İDDİA 1/60,
+PROVOKATİF 1/28, YANLIŞ_BAĞLAM 3/120 vakada hâlâ tetikleniyor. Bunlar gerçek
+metinlerden geliyor (DMM bültenleri, elle yazılmış provokatif metinler) ve
+uydurma değil; oldukları gibi bırakıldı, sayıları burada yazılı.
+
 ### M4 v2: kör nokta kapandı, üç sessiz hata daha yakalandı
 
 | Ölçüm | v1 (devredeydi) | **v2** |
@@ -375,8 +411,9 @@ yapmayı sağlıyor.
 | Medyan ayrımı | 0,0167 | **0,5165** |
 | Afet özgüllüğü (tutulan olay, n=130) | — ölçülmedi — | **0,9615** |
 | Afet duyarlılığı (tutulan üretici, n=285) | **0,0000** | **0,9193** |
-| M6 · SENTETİK_MEDYA F1 | 0,0000 | **0,5185** |
+| M6 · SENTETİK_MEDYA F1 | 0,0000 | **0,9655** |
 | M6 · gerçek görselde yanlış suçlama | 5/320 | **0/320** |
+| M6 · makro-F1 | 0,4277 | **0,6199** |
 
 Değişen mimari değil, **veri tarifi**: üretilmiş afet görselleri (1700) pozitif
 sınıfa katıldı ve afet alanı içinde pozitif/negatif dengesi kuruldu.
