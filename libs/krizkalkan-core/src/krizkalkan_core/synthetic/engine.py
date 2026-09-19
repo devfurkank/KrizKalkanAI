@@ -263,6 +263,11 @@ def _video_sinyalleri(yol: Path) -> list[Signal]:
 
     try:
         sonuc = model.incele(yol)
+    except ImportError:
+        # Model yüklü ama kare çözücü yok: dosya hakkında hiçbir şey bilinmiyor.
+        # "Bozuk dosya" demek, kurulum eksiğini kullanıcının dosyasına yüklemek olurdu.
+        logger.warning("Video çözülemedi, OpenCV kurulu değil: %s", yol)
+        return [_video_cekinme("Video kareleri çözülemedi — bu kurulumda OpenCV yok")]
     except Exception:
         logger.exception("Video sentetik analizi yapılamadı: %s", yol)
         return [_video_cekinme("Video çözümlenemedi — dosya bozuk ya da desteklenmeyen kodlama")]

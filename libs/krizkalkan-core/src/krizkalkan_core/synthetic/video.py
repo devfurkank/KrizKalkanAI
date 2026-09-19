@@ -218,6 +218,10 @@ class SentetikVideoModeli:
     """fp32 ONNX video detektörü + eğitimle aynı kare seçimi."""
 
     def __init__(self, dizin: Path) -> None:
+        # OpenCV burada istenir: yoksa yükleme başarısız olur ve kayıt defteri
+        # bunu "yükleme hatası" olarak raporlar (`make model-durum`). Aksi hâlde
+        # model "hazır" görünür ve her videoda ayrı ayrı çekinirdi.
+        import cv2  # noqa: F401
         import onnxruntime as ort
 
         from krizkalkan_core.models.runtime import onnx_session_options

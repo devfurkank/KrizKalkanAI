@@ -4,6 +4,10 @@ Ağırlık gerektirmez: sürekli tümleştirmede `models/` dizini boştur. Model
 sözleşmeye uyan sahte bir detektörle sınanır; ağırlığın ne kadar iyi olduğu
 `scripts/eval/m4_video.py` içinde ölçülür. Tek istisna en alttaki test: ağırlık
 diskteyse uçtan uca çıkarımı sınar, yoksa atlanır.
+
+OpenCV `[models]` ekindedir ve CI yalnızca `[dev]` kurar. Bu yüzden OpenCV
+YALNIZCA gerçekten video çözen testlerde istenir; motor sözleşmesi ve füzyon
+testleri onsuz da çalışır ve CI'da atlanmaz.
 """
 
 from __future__ import annotations
@@ -24,9 +28,6 @@ from krizkalkan_core.synthetic.engine import VIDEO_KLIP_ANAHTARI
 from krizkalkan_core.synthetic.video import KareOrnekleyici, VideoSonucu
 from krizkalkan_core.taxonomy import Verdict
 
-cv2 = pytest.importorskip("cv2", reason="opencv kurulu değil")
-np = pytest.importorskip("numpy", reason="numpy kurulu değil")
-
 AYAR = {
     "kare_sayisi": 32,
     "boyut": 224,
@@ -37,7 +38,9 @@ AYAR = {
 
 
 def _video_yaz(yol: Path, kare: int = 60, genislik: int = 160, yukseklik: int = 96) -> Path:
-    """Hareketli bir kare içeren gerçek bir MP4 üretir."""
+    """Hareketli bir kare içeren gerçek bir MP4 üretir; OpenCV yoksa testi atlar."""
+    cv2 = pytest.importorskip("cv2", reason="opencv kurulu değil")
+    np = pytest.importorskip("numpy", reason="numpy kurulu değil")
     yazici = cv2.VideoWriter(str(yol), cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (genislik, yukseklik))
     for i in range(kare):
         tuval = np.full((yukseklik, genislik, 3), 40, np.uint8)
@@ -45,6 +48,16 @@ def _video_yaz(yol: Path, kare: int = 60, genislik: int = 160, yukseklik: int = 
         tuval[30:50, x : x + 20] = (0, 200, 255)
         yazici.write(tuval)
     yazici.release()
+    return yol
+
+
+def _dosya(yol: Path) -> Path:
+    """Video uzantılı gerçek bir dosya — içeriği çözülmez, yalnızca yolu sınanır.
+
+    Motor sözleşmesi testleri sahte detektör kullanır; dosyanın yalnızca diskte
+    var olması gerekir. Böylece OpenCV'siz kurulumda da çalışırlar.
+    """
+    yol.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
     return yol
 
 
@@ -87,6 +100,8 @@ def test_kisa_videoda_son_kare_tekrarlanir(tmp_path: Path) -> None:
 def test_okunan_tensor_modelin_girisine_uyar(tmp_path: Path) -> None:
     """[0,1] aralığı, RGB, 224×224 — ResNet normalizasyonu modelin içindedir."""
     yol = _video_yaz(tmp_path / "a.mp4")
+    import numpy as np
+
     ornekleyici = KareOrnekleyici(AYAR)
     kareler = ornekleyici.oku(yol, ornekleyici.sec(yol, 60))
 
@@ -102,7 +117,7 @@ def test_okunan_tensor_modelin_girisine_uyar(tmp_path: Path) -> None:
 
 
 def test_video_dosyasi_video_modeline_gider(monkeypatch, tmp_path: Path) -> None:
-    yol = _video_yaz(tmp_path / "klip.mp4")
+    yol = _dosya(tmp_path / "klip.mp4")
     sahte = SahteVideoModeli(VideoSonucu(uretim_skoru=0.93, secilen_kareler=list(range(32))))
     monkeypatch.setattr(video, "get", lambda: sahte)
 
@@ -119,7 +134,7 @@ def test_video_dosyasi_video_modeline_gider(monkeypatch, tmp_path: Path) -> None
 
 def test_model_yoksa_sozluge_dusulmez_cekinilir(monkeypatch, tmp_path: Path) -> None:
     """Dosya adındaki 'ai-uretilmis' gerçek bir dosyada hiçbir skora dönüşmez."""
-    yol = _video_yaz(tmp_path / "ai-uretilmis-deepfake.mp4")
+    yol = _dosya(tmp_path / "ai-uretilmis-deepfake.mp4")
     monkeypatch.setattr(video, "get", lambda: None)
 
     sinyaller = synthetic.analyse(str(yol), "video", has_audio=True)
@@ -131,7 +146,7 @@ def test_model_yoksa_sozluge_dusulmez_cekinilir(monkeypatch, tmp_path: Path) -> 
 
 
 def test_cekinen_model_skor_uretmez(monkeypatch, tmp_path: Path) -> None:
-    yol = _video_yaz(tmp_path / "uzun.mp4")
+    yol = _dosya(tmp_path / "uzun.mp4")
     sahte = SahteVideoModeli(
         VideoSonucu(cekinme_nedeni="video süresi modelin çalışma aralığının dışında")
     )
@@ -145,7 +160,7 @@ def test_cekinen_model_skor_uretmez(monkeypatch, tmp_path: Path) -> None:
 
 def test_gercek_dosyada_ses_ve_ustveri_uydurulmaz(monkeypatch, tmp_path: Path) -> None:
     """Ses modeli yok ve üstveri tarayıcısı videoda ölçülmedi: ikisi de çekinir."""
-    yol = _video_yaz(tmp_path / "klon-sentetik-ses.mp4")
+    yol = _dosya(tmp_path / "klon-sentetik-ses.mp4")
     monkeypatch.setattr(video, "get", lambda: None)
 
     sinyaller = synthetic.analyse(str(yol), "video", has_audio=True)
@@ -157,7 +172,7 @@ def test_gercek_dosyada_ses_ve_ustveri_uydurulmaz(monkeypatch, tmp_path: Path) -
 
 
 def test_gercek_dosyada_dudak_ses_uyumu_uydurulmaz(tmp_path: Path) -> None:
-    yol = _video_yaz(tmp_path / "senkronsuz.mp4")
+    yol = _dosya(tmp_path / "senkronsuz.mp4")
 
     sinyaller = multimodal.analyse(str(yol), "video", True, [], "")
 
@@ -168,6 +183,7 @@ def test_gercek_dosyada_dudak_ses_uyumu_uydurulmaz(tmp_path: Path) -> None:
 
 def test_bozuk_video_gercek_modelde_cekinir(tmp_path: Path) -> None:
     """Çözülemeyen dosyada ağ hiç çalıştırılmaz — oturum gerekmez."""
+    pytest.importorskip("cv2", reason="opencv kurulu değil")
     bozuk = tmp_path / "bozuk.mp4"
     bozuk.write_bytes(b"\x00\x00\x00\x18ftypmp42 bu bir video degil")
     model = video.SentetikVideoModeli.__new__(video.SentetikVideoModeli)
@@ -187,6 +203,23 @@ def test_sure_siniri_asilinca_cekinilir(monkeypatch, tmp_path: Path) -> None:
     sonuc = model.incele(yol)
 
     assert sonuc.cekindi and "çalışma aralığının dışında" in (sonuc.cekinme_nedeni or "")
+
+
+def test_opencv_yoksa_bozuk_dosya_denmez(monkeypatch, tmp_path: Path) -> None:
+    """Kurulum eksiği kullanıcının dosyasına yüklenmez."""
+    yol = _dosya(tmp_path / "klip.mp4")
+
+    class OpenCVsizModel:
+        def incele(self, yol):
+            raise ModuleNotFoundError("No module named 'cv2'")
+
+    monkeypatch.setattr(video, "get", lambda: OpenCVsizModel())
+
+    klip = _sinyal(synthetic.analyse(str(yol), "video", False), VIDEO_KLIP_ANAHTARI)
+
+    assert klip.abstained
+    assert "OpenCV" in (klip.abstain_reason or "")
+    assert "bozuk" not in (klip.abstain_reason or "")
 
 
 # ────────────────────────── füzyon ──────────────────────────

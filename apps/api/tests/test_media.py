@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import stat
+import sys
 import tempfile
 from pathlib import Path
 
@@ -179,17 +180,41 @@ def test_heic_video_sanilmaz(client: TestClient, temp_dir: Path) -> None:
     assert list(temp_dir.iterdir()) == []
 
 
+#: Kapsayıcı başlığı geçerli (`ftyp` · mp42) ama tek bir kare bile taşımayan dosya.
+_BOZUK_MP4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"\x00" * 256
+
+
 def test_cozulemeyen_video_reddedilir(client: TestClient, temp_dir: Path) -> None:
-    bozuk = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"\x00" * 256
-    r = client.post("/api/analyze/media", files={"file": ("a.mp4", bozuk, "video/mp4")})
+    """Kare çözücü varken bozuk video analize hiç girmez."""
+    pytest.importorskip("cv2", reason="opencv kurulu değil")
+    r = client.post("/api/analyze/media", files={"file": ("a.mp4", _BOZUK_MP4, "video/mp4")})
     assert r.status_code == 415
+    assert list(temp_dir.iterdir()) == []
+
+
+def test_opencv_yoksa_video_kabul_edilir_ve_m4_cekinir(
+    client: TestClient, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OpenCV'siz kurulumda (ör. yalnızca `[dev]`) video reddedilmez, sistem çökmez.
+
+    Dosyanın çözülüp çözülemediği bilinemez; karar analize bırakılır ve M4
+    "bilmiyorum" der. Bu, model katmanı kapalıyken kural yoluna düşmenin
+    video karşılığıdır.
+    """
+    monkeypatch.setitem(sys.modules, "cv2", None)  # import cv2 → ImportError
+    r = client.post("/api/analyze/media", files={"file": ("a.mp4", _BOZUK_MP4, "video/mp4")})
+
+    assert r.status_code == 200
+    klip = next(s for s in r.json()["signals"] if s["key"] == "synthetic.video_clip")
+    assert klip["abstained"] is True
     assert list(temp_dir.iterdir()) == []
 
 
 def test_sinir_asan_video_reddedilir(
     client: TestClient, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Boyut, çözme denemesinden ÖNCE denetlenir: OpenCV gerekmez.
     monkeypatch.setattr(media, "MAX_VIDEO_BYTES", 100)
-    r = client.post("/api/analyze/media", files={"file": ("a.mp4", _mp4(), "video/mp4")})
+    r = client.post("/api/analyze/media", files={"file": ("a.mp4", _BOZUK_MP4, "video/mp4")})
     assert r.status_code == 413
     assert list(temp_dir.iterdir()) == []
