@@ -29,6 +29,12 @@ VARSAYILAN_NOKTALAR: dict[str, list[tuple[float, float]]] = {
     "provenance.match": [(0.0, 0.0), (0.80, 0.10), (0.86, 0.62), (0.92, 0.93), (1.0, 0.98)],
     # Sentetik medya dedektörleri aşırı güvenlidir; yüksek skorlar bastırılır.
     "synthetic.video": [(0.0, 0.02), (0.30, 0.12), (0.60, 0.38), (0.80, 0.68), (1.0, 0.88)],
+    # Video modeli. Tek dayanak noktası, eğitimde doğrulama bölmesinde seçilen
+    # eşiktir: P(üretilmiş) 0,55 → SENTETIK_KANIT_ESIGI (0,62). Böylece füzyon
+    # modelin kendi karar sınırını korur. Eşiğin üstü ve altı doğrusal ve
+    # ÖLÇÜLMEMİŞTİR: modelin görmediği bir video kümesi olmadan isotonic
+    # kalibrasyon öğrenilemez (docs/metrikler/m4-video.md).
+    "synthetic.video_clip": [(0.0, 0.02), (0.55, 0.62), (1.0, 0.90)],
     "synthetic.audio": [(0.0, 0.02), (0.30, 0.14), (0.60, 0.42), (0.80, 0.72), (1.0, 0.90)],
     "synthetic.c2pa": [(0.0, 0.0), (0.5, 0.5), (1.0, 0.99)],
     "multimodal.av_sync": [(0.0, 0.03), (0.30, 0.15), (0.60, 0.45), (0.85, 0.78), (1.0, 0.92)],

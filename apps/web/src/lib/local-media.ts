@@ -1,5 +1,5 @@
 /**
- * Yüklenen görsellerin tarayıcı içi kopyaları.
+ * Yüklenen görsel ve videoların tarayıcı içi kopyaları.
  *
  * Sunucu ham medyayı analiz sonrası saklamaz (docs/etik-protokol.md · KVKK).
  * Paylaşılan görseli yalnızca yükleyen tarayıcı, kendi belleğindeki kopyadan
@@ -8,7 +8,7 @@
 
 const uploads = new Map<string, string>();
 
-/** Yayımlanan gönderinin görselini (blob URL) akışta göstermek için saklar. */
+/** Yayımlanan gönderinin medyasını (blob URL) akışta göstermek için saklar. */
 export function rememberUpload(postId: string, objectUrl: string): void {
   uploads.set(postId, objectUrl);
 }

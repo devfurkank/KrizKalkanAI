@@ -39,6 +39,19 @@ models = [
     "tokenizers==0.23.2",
     # C2PA / Content Credentials doğrulaması — M4'ün tek kriptografik sinyali.
     "c2pa-python==0.37.10",
+    # M4 video: kare çözme ve hareket analizi. Kendi FFmpeg'ini taşır; sistemde
+    # ffmpeg kurulu olması gerekmez. Kare seçimi eğitimdekiyle birebir aynı
+    # olmalı, bu yüzden sürüm diğerleri gibi sabittir.
+    "opencv-python-headless==5.0.0.93",
+]
+
+# Yalnızca M4 video ağırlığını dışa aktarmak için (scripts/train/m4_video_disa_aktar.py).
+# Kaynak ağırlık Keras 2.10 HDF5'tir; çıkarım ONNX'te yapılır, TensorFlow demoya girmez.
+video-export = [
+    "tensorflow==2.21.0",
+    "tf_keras==2.21.0",
+    "tf2onnx==1.17.0",
+    "onnx==1.23.0",
 ]
 
 # Yalnızca Kaggle/eğitim ortamında kurulur; yerel demoya girmez.

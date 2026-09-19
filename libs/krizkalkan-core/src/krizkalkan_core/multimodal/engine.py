@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from krizkalkan_core import medya
 from krizkalkan_core.multimodal import scene
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, ExtractedClaim, Signal
@@ -147,9 +148,26 @@ def analyse(
     fp = fingerprint.casefold()
     signals: list[Signal] = []
     desynced = any(m in fp for m in _DESYNC_MARKERS)
+    gercek_dosya = medya.dosya_yolu(fingerprint) is not None
+
+    # Dudak–ses ve konuşmacı–yüz modelleri kurulmadı; ikisi de sözlük yolundadır
+    # ve skoru parmak izi dizesinden türetir. Gerçek dosyada bu, hiç yapılmamış
+    # bir analizi ("dudak hareketi ses ile hizalı") raporlamak olurdu.
+    if has_audio and gercek_dosya:
+        signals.append(
+            Signal(
+                module="M2",
+                key="multimodal.av_sync",
+                label="Dudak hareketi ile ses uyumsuzluğu",
+                score=0.0,
+                raw_score=0.0,
+                abstained=True,
+                abstain_reason="Dudak–ses hizalama modeli kurulmadı — ses–görüntü uyumu analiz edilmedi",
+            )
+        )
 
     # ── 1. Dudak–ses hizalaması ──
-    if has_audio:
+    if has_audio and not gercek_dosya:
         raw = (
             _score(fp, "avsync-bad", 0.72, 0.93)
             if desynced

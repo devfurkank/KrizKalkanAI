@@ -1,4 +1,4 @@
-.PHONY: help setup setup-node setup-python setup-models model-durum veri m5-index depo-denetimi up down logs demo dev-web dev-api dev-worker test lint format clean
+.PHONY: help setup setup-node setup-python setup-models model-durum veri m5-index depo-denetimi up down logs demo dev-web dev-api dev-worker test lint format clean m4-video m4-video-aktar
 
 PY := python3.12
 VENV := .venv
@@ -12,6 +12,8 @@ help:
 	@echo "  make veri         Veri kümelerini indirir, uyumlaştırır, böler"
 	@echo "  make m5-index     M5 bilgi havuzunu ve geri getirme indeksini kurar"
 	@echo "  make m4-model     M4 sentetik görüntü detektörlerini kurar (DeepReality → ONNX)"
+	@echo "  make m4-video     M4 video kümesinin manifestini ve ölçümünü üretir (kabul kapısı)"
+	@echo "  make m4-video-aktar M4 video ağırlığını ONNX'e aktarır (ayrı ortamda TensorFlow kurar)"
 	@echo "  make up           Altyapıyı başlatır (Postgres, Redis, MinIO)"
 	@echo "  make down         Altyapıyı durdurur"
 	@echo "  make dev-web      Next.js geliştirme sunucusu (:3000)"
@@ -63,6 +65,20 @@ m5-index:
 # Kabul kapısı ölçümle açılır: scripts/eval/m4_synthetic.py
 m4-model:
 	$(VENV)/bin/python scripts/data/build_synthetic.py
+
+# M4 video: küme manifesti + ölçüm. Ölçüm model kartını yazar; kabul kapısı
+# (alan_ici_ozgulluk) bu kartı okur. Ağırlık models/m4_video altında olmalıdır.
+m4-video:
+	$(VENV)/bin/python scripts/data/build_video_afet.py
+	$(VENV)/bin/python scripts/eval/m4_video.py
+
+# M4 video: Keras ağırlığı → ONNX. TensorFlow yalnızca bu adımda gerekir ve demo
+# ortamına girmez; ayrı bir sanal ortama kurulur. Aktarım kartı sıfırlar,
+# ardından `make m4-video` çalıştırılmalıdır.
+m4-video-aktar:
+	$(PY) -m venv .venv-aktar
+	.venv-aktar/bin/pip install -e "libs/krizkalkan-core[models,video-export]"
+	.venv-aktar/bin/python scripts/train/m4_video_disa_aktar.py
 
 up:
 	docker compose -f infra/compose.yaml up -d

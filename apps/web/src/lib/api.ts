@@ -87,14 +87,16 @@ export const createPost = (payload: CreatePostPayload) =>
     body: JSON.stringify({ media_kind: "yok", audience: "herkes", ...payload }),
   });
 
-// ─────────────────────────── gerçek görsel ───────────────────────────
-// Görsel modüller (M1 köken, M2 sahne–iddia, M4 sentetik) yalnızca gerçek
-// dosyada çalışır. Dosya iki istekte de yeniden gönderilir: sunucu onu analiz
-// biter bitmez siler, arada saklamaz.
+// ─────────────────────────── gerçek medya ───────────────────────────
+// Medya modülleri (M1 köken, M2 sahne–iddia, M4 sentetik görüntü/video) yalnızca
+// gerçek dosyada çalışır. Dosya iki istekte de yeniden gönderilir: sunucu onu
+// analiz biter bitmez siler, arada saklamaz.
 
-/** Kabul edilen biçimler ve boyut sınırı — sunucudakiyle (media.py) aynı. */
+/** Kabul edilen biçimler ve boyut sınırları — sunucudakiyle (media.py) aynı. */
 export const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
+export const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm", "video/x-m4v"];
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 function mediaForm(file: File, fields: Record<string, string>): FormData {
   const form = new FormData();

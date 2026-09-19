@@ -31,6 +31,7 @@ from krizkalkan_core.taxonomy import Verdict
 #: Sinyal → o sinyalin karara girebilmesi için gereken kalibre skor.
 KARAR_ESIKLERI = {
     "synthetic.video": SENTETIK_KANIT_ESIGI,
+    "synthetic.video_clip": SENTETIK_KANIT_ESIGI,
     "synthetic.audio": SENTETIK_KANIT_ESIGI,
     "synthetic.c2pa": SENTETIK_KANIT_ESIGI,
     "synthetic.metadata": SENTETIK_KANIT_ESIGI,

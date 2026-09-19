@@ -24,13 +24,15 @@ import {
   createPostWithMedia,
   IMAGE_TYPES,
   MAX_IMAGE_BYTES,
+  MAX_VIDEO_BYTES,
+  VIDEO_TYPES,
 } from "@/lib/api";
 import { rememberUpload } from "@/lib/local-media";
 import type { AnalysisResult, Post } from "@/lib/types";
 import { audienceOptions, currentUser, type Audience } from "@/lib/mock-data";
 
 const MAX = 10000;
-/** Görsel dışındaki araçlar demo kabuğudur; yalnızca görsel ekleme çalışır. */
+/** Medya dışındaki araçlar demo kabuğudur; yalnızca görsel/video ekleme çalışır. */
 const TOOLS = [
   { Icon: PollIcon, label: "Anket ekle" },
   { Icon: InfoIcon, label: "Bilgi" },
@@ -48,11 +50,14 @@ export interface AttachedMedia {
   label: string;
 }
 
-/** Kullanıcının seçtiği gerçek görsel ve tarayıcı içi önizlemesi. */
+/** Kullanıcının seçtiği gerçek görsel/video ve tarayıcı içi önizlemesi. */
 interface Upload {
   file: File;
   url: string;
+  kind: "image" | "video";
 }
+
+const MEDIA_TYPES = [...IMAGE_TYPES, ...VIDEO_TYPES];
 
 const TOOL_CLASS =
   "flex size-8 items-center justify-center rounded-full text-ns-muted transition-colors hover:bg-ns-hover hover:text-ns-primary dark:text-nsd-subtle dark:hover:bg-nsd-hover";
@@ -86,8 +91,8 @@ function Toolbar({
     <div className="flex flex-wrap items-center gap-1">
       <button
         type="button"
-        title="Görsel ekle"
-        aria-label="Görsel ekle"
+        title="Görsel veya video ekle"
+        aria-label="Görsel veya video ekle"
         onClick={onPickImage}
         className={TOOL_CLASS}
       >
@@ -199,9 +204,11 @@ export function InlineComposer({
     [],
   );
 
-  // Gerçek görsel seçildiyse demo senaryosunun parmak izinin yerine geçer.
+  // Gerçek medya seçildiyse demo senaryosunun parmak izinin yerine geçer.
   const media = upload ? null : (attached ?? null);
-  const mediaLabel = upload ? `Görsel · ${upload.file.name}` : (media?.label ?? null);
+  const mediaLabel = upload
+    ? `${upload.kind === "video" ? "Video" : "Görsel"} · ${upload.file.name}`
+    : (media?.label ?? null);
   const expanded = focused || value.length > 0 || mediaLabel !== null;
 
   function discardUpload() {
@@ -214,18 +221,28 @@ export function InlineComposer({
     const file = e.target.files?.[0];
     e.target.value = ""; // aynı dosya yeniden seçilebilsin
     if (!file) return;
-    if (!IMAGE_TYPES.includes(file.type)) {
-      setError("Yalnızca JPEG, PNG ve WebP görseller analiz edilebilir");
+    const kind = VIDEO_TYPES.includes(file.type)
+      ? "video"
+      : IMAGE_TYPES.includes(file.type)
+        ? "image"
+        : null;
+    if (kind === null) {
+      setError(
+        "Yalnızca JPEG, PNG ve WebP görseller ile MP4, MOV ve WebM videolar analiz edilebilir",
+      );
       return;
     }
-    if (file.size > MAX_IMAGE_BYTES) {
-      setError(`Görsel ${MAX_IMAGE_BYTES / (1024 * 1024)} MB sınırını aşıyor`);
+    const limit = kind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > limit) {
+      setError(
+        `${kind === "video" ? "Video" : "Görsel"} ${limit / (1024 * 1024)} MB sınırını aşıyor`,
+      );
       return;
     }
     discardUpload();
     const url = URL.createObjectURL(file);
     pendingUrl.current = url;
-    setUpload({ file, url });
+    setUpload({ file, url, kind });
     setPreview(null);
     setError(null);
     setFocused(true);
@@ -281,7 +298,7 @@ export function InlineComposer({
             media_fingerprint: media?.fingerprint ?? null,
           });
       if (upload) {
-        // Görsel artık akışa ait: blob URL serbest bırakılmaz.
+        // Medya artık akışa ait: blob URL serbest bırakılmaz.
         rememberUpload(post.id, upload.url);
         pendingUrl.current = null;
       }
@@ -328,15 +345,26 @@ export function InlineComposer({
         {upload ? (
           <div className="mt-3 ml-[50px]">
             <div className="relative w-fit max-w-full">
-              {/* eslint-disable-next-line @next/next/no-img-element -- tarayıcı içi blob önizlemesi; next/image blob URL'yi işleyemez */}
-              <img
-                src={upload.url}
-                alt="Yüklenen görselin önizlemesi"
-                className="max-h-72 rounded-xl border border-ns-line object-contain dark:border-nsd-line"
-              />
+              {upload.kind === "video" ? (
+                <video
+                  src={upload.url}
+                  controls
+                  muted
+                  playsInline
+                  aria-label="Yüklenen videonun önizlemesi"
+                  className="max-h-72 rounded-xl border border-ns-line bg-black dark:border-nsd-line"
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element -- tarayıcı içi blob önizlemesi; next/image blob URL'yi işleyemez */
+                <img
+                  src={upload.url}
+                  alt="Yüklenen görselin önizlemesi"
+                  className="max-h-72 rounded-xl border border-ns-line object-contain dark:border-nsd-line"
+                />
+              )}
               <button
                 type="button"
-                aria-label="Görseli kaldır"
+                aria-label={upload.kind === "video" ? "Videoyu kaldır" : "Görseli kaldır"}
                 onClick={clearMedia}
                 className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/75"
               >
@@ -344,7 +372,8 @@ export function InlineComposer({
               </button>
             </div>
             <p className="mt-1.5 text-[11.5px] text-ns-subtle">
-              Görsel yalnızca analiz süresince işlenir; sunucuda saklanmaz.
+              {upload.kind === "video" ? "Video" : "Görsel"} yalnızca analiz süresince işlenir;
+              sunucuda saklanmaz.
             </p>
           </div>
         ) : null}
@@ -352,7 +381,7 @@ export function InlineComposer({
         <input
           ref={fileRef}
           type="file"
-          accept={IMAGE_TYPES.join(",")}
+          accept={MEDIA_TYPES.join(",")}
           onChange={pickImage}
           className="hidden"
           tabIndex={-1}

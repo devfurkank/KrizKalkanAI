@@ -27,6 +27,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv-aktar/
 venv/
 env/
 *.egg-info/

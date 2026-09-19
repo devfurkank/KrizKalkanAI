@@ -120,3 +120,76 @@ def test_gorselli_gonderi_yayimlanir_ve_dosya_saklanmaz(client: TestClient, temp
 
     akis = client.get("/api/posts").json()
     assert akis[0]["id"] == post["id"]
+
+
+# ────────────────────────── video ──────────────────────────
+
+
+def _mp4(kare: int = 40) -> bytes:
+    """Hareketli bir kare içeren gerçek bir MP4."""
+    cv2 = pytest.importorskip("cv2", reason="opencv kurulu değil")
+    import numpy as np
+
+    with tempfile.TemporaryDirectory() as dizin:
+        yol = Path(dizin) / "v.mp4"
+        yazici = cv2.VideoWriter(str(yol), cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (160, 96))
+        for i in range(kare):
+            tuval = np.full((96, 160, 3), 40, np.uint8)
+            tuval[30:50, (i * 3) % 140 : (i * 3) % 140 + 20] = (0, 200, 255)
+            yazici.write(tuval)
+        yazici.release()
+        return yol.read_bytes()
+
+
+def test_video_analizi_video_olarak_isler(client: TestClient, temp_dir: Path) -> None:
+    video = _mp4()
+    r = client.post(
+        "/api/analyze/media",
+        # İstemcinin bildirdiği tür ve ad yanlış: tür baytlardan tanınır.
+        files={"file": ("dosya.bin", video, "application/octet-stream")},
+        data={"body": "Deprem anı"},
+    )
+    assert r.status_code == 200
+    sonuc = r.json()
+    assert "video" in sonuc["modalities"]
+    assert "M4" in sonuc["modules_run"]
+    assert any(s["key"] == "synthetic.video_clip" for s in sonuc["signals"])
+    # Ne video ne anahtar kare sunucuda kalır.
+    assert list(temp_dir.iterdir()) == []
+
+
+def test_videolu_gonderi_video_olarak_yayimlanir(client: TestClient, temp_dir: Path) -> None:
+    r = client.post(
+        "/api/posts/media",
+        files={"file": ("ayse_yilmaz.mp4", _mp4(), "video/mp4")},
+        data={"body": "Sel görüntüsü", "audience": "herkes"},
+    )
+    assert r.status_code == 201
+    post = r.json()
+    assert post["media"] == {**post["media"], "kind": "video", "uploaded": True}
+    assert "ayse" not in r.text.casefold()
+    assert list(temp_dir.iterdir()) == []
+
+
+def test_heic_video_sanilmaz(client: TestClient, temp_dir: Path) -> None:
+    """`ftyp` kutusu HEIC/AVIF görsellerde de var; bunlar video yoluna girmez."""
+    heic = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + b"\x00" * 64
+    r = client.post("/api/analyze/media", files={"file": ("a.heic", heic, "image/heic")})
+    assert r.status_code == 415
+    assert list(temp_dir.iterdir()) == []
+
+
+def test_cozulemeyen_video_reddedilir(client: TestClient, temp_dir: Path) -> None:
+    bozuk = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"\x00" * 256
+    r = client.post("/api/analyze/media", files={"file": ("a.mp4", bozuk, "video/mp4")})
+    assert r.status_code == 415
+    assert list(temp_dir.iterdir()) == []
+
+
+def test_sinir_asan_video_reddedilir(
+    client: TestClient, temp_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(media, "MAX_VIDEO_BYTES", 100)
+    r = client.post("/api/analyze/media", files={"file": ("a.mp4", _mp4(), "video/mp4")})
+    assert r.status_code == 413
+    assert list(temp_dir.iterdir()) == []

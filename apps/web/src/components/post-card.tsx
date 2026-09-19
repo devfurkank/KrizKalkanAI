@@ -53,12 +53,26 @@ function StatPill({
 }
 
 /** Kullanıcının yüklediği görsel: yalnızca yükleyen tarayıcının kopyasından. */
-function UploadedMedia({ postId }: { postId: string }) {
+function UploadedMedia({ postId, kind }: { postId: string; kind: MediaRef["kind"] }) {
   const url = uploadFor(postId);
+  const ad = kind === "video" ? "Video" : "Görsel";
   if (!url) {
     return (
       <div className="mt-3 flex aspect-[16/7] items-center justify-center rounded-xl border border-dashed border-ns-line px-6 text-center text-[12.5px] text-ns-subtle dark:border-nsd-line">
-        Görsel analiz edildi · sunucuda saklanmadı
+        {ad} analiz edildi · sunucuda saklanmadı
+      </div>
+    );
+  }
+  if (kind === "video") {
+    return (
+      <div className="mt-3 overflow-hidden rounded-xl bg-black">
+        <video
+          src={url}
+          controls
+          playsInline
+          aria-label="Paylaşılan video"
+          className="mx-auto max-h-[520px] w-full"
+        />
       </div>
     );
   }
@@ -75,7 +89,7 @@ function UploadedMedia({ postId }: { postId: string }) {
 }
 
 function Media({ media, postId }: { media: MediaRef; postId: string }) {
-  if (media.uploaded) return <UploadedMedia postId={postId} />;
+  if (media.uploaded) return <UploadedMedia postId={postId} kind={media.kind} />;
   if (media.kind === "grid") {
     return (
       <div className="mt-3 grid grid-cols-2 gap-[3px] overflow-hidden rounded-xl">

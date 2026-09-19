@@ -11,6 +11,7 @@ import logging
 import re
 from pathlib import Path
 
+from krizkalkan_core import medya
 from krizkalkan_core.provenance import corpus, imaging, index
 from krizkalkan_core.provenance.hashing import (
     MATCH_MAX_DISTANCE,
@@ -241,6 +242,12 @@ def analyse(
     # tohumlanmış korpusla eşleşmeye devam eder.
     if (yol := _medya_yolu(fingerprint)) is not None:
         return _gercek_medya(yol, claimed_location)
+
+    # Gerçek ama görüntü olarak açılamayan dosya (ör. anahtar karesi çıkarılamayan
+    # bir video) demo sözlüğüne DÜŞMEZ: orada dosya yolunun karması korpusla
+    # karşılaştırılır ve rastgele bir "eşleşme" üretebilir.
+    if medya.dosya_yolu(fingerprint) is not None:
+        return None, [_cekinme("Dosyadan köken sorgusu için görüntü çıkarılamadı")]
 
     match, entry = lookup(fingerprint)
 

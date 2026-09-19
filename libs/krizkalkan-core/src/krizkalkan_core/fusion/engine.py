@@ -81,6 +81,7 @@ def fuse(
     """
     prov = _active(signals, "provenance.match")
     synth_video = _active(signals, "synthetic.video")
+    synth_klip = _active(signals, "synthetic.video_clip")
     synth_audio = _active(signals, "synthetic.audio")
     c2pa = _active(signals, "synthetic.c2pa")
     ustveri = _active(signals, "synthetic.metadata")
@@ -121,13 +122,14 @@ def fuse(
     # parametresi bir tahmin değil, üretici aracın kendi kaydıdır. Ölçüldü
     # (n=592, OpenFake): gerçek görüntülerde yanlış pozitif %0,0
     # (docs/metrikler/m4-ustveri.md). Bu yüzden C2PA ile aynı torbadadır.
-    synthetic_evidence = max(synth_video, synth_audio, c2pa, ustveri)
+    synthetic_evidence = max(synth_video, synth_klip, synth_audio, c2pa, ustveri)
     if synthetic_evidence >= SENTETIK_KANIT_ESIGI:
         return (
             Verdict.SENTETIK_MEDYA,
             min(0.96, synthetic_evidence),
             contributors(
                 "synthetic.video",
+                "synthetic.video_clip",
                 "synthetic.audio",
                 "synthetic.c2pa",
                 "synthetic.metadata",
@@ -224,7 +226,8 @@ def fuse(
     # Medya analiz edildi ama sentetik medya modülü karar veremediyse, sentetik
     # olma olasılığı dışlanamaz. Diğer modüller de bir şey bulmadıysa dürüst
     # cevap "bilmiyorum"dur — "temiz" değil.
-    synth_signal = by_key.get("synthetic.video")
+    # Video içerikte bu rolü video modeli üstlenir (`synthetic.video_clip`).
+    synth_signal = by_key.get("synthetic.video") or by_key.get("synthetic.video_clip")
     if synth_signal is not None and synth_signal.abstained and strongest < ABSTENTION_FLOOR:
         return (
             Verdict.YETERSIZ_KANIT,

@@ -27,9 +27,12 @@ CURRENT_USER = AUTHORS["kullanici1"].model_copy(
     update={"name": "Furkan K.", "handle": "furkankeskin"}
 )
 
-#: Yüklenen görselin gönderideki temsili. Dosya adı bilinçli olarak
+#: Yüklenen medyanın gönderideki temsili. Dosya adı bilinçli olarak
 #: saklanmaz: kişisel bilgi taşıyabilir ve analizde hiçbir rol oynamaz.
-UPLOADED_IMAGE = MediaRef(kind="image", label="Yüklenen görsel", uploaded=True)
+UPLOADED_MEDIA = {
+    "image": MediaRef(kind="image", label="Yüklenen görsel", uploaded=True),
+    "video": MediaRef(kind="video", label="Yüklenen video", uploaded=True),
+}
 
 Body = Annotated[str, Form(max_length=10_000)]
 Audience = Annotated[Literal["herkes", "takipciler", "belirli"], Form()]
@@ -67,13 +70,13 @@ def analyze(payload: AnalyzeRequest) -> AnalysisResult:
 
 @router.post("/analyze/media", response_model=AnalysisResult)
 def analyze_media(file: Annotated[UploadFile, File()], body: Body = "") -> AnalysisResult:
-    """Yüklenen gerçek görseli paylaşmadan önce analiz eder (Akış 1).
+    """Yüklenen gerçek görseli ya da videoyu paylaşmadan önce analiz eder (Akış 1).
 
-    Görsel modüller (M1 köken indeksi, M2 sahne–iddia, M4 sentetik görüntü,
+    Medya modülleri (M1 köken indeksi, M2 sahne–iddia, M4 sentetik görüntü/video,
     C2PA) yalnızca gerçek dosyada çalışır. Dosya analiz biter bitmez silinir.
     """
-    with temporary_upload(file) as path:
-        result = pipeline.analyse(body=body, media_kind="image", media_fingerprint=str(path))
+    with temporary_upload(file) as (path, kind):
+        result = pipeline.analyse(body=body, media_kind=kind, media_fingerprint=str(path))
     store.add_analysis(result)
     return result
 
@@ -105,14 +108,18 @@ def create_post(payload: CreatePostRequest) -> Post:
 def create_post_with_media(
     file: Annotated[UploadFile, File()], body: Body = "", audience: Audience = "herkes"
 ) -> Post:
-    """Gerçek görselli gönderiyi yayımlar; görsel analiz sonrası saklanmaz."""
+    """Gerçek görselli ya da videolu gönderiyi yayımlar; medya analiz sonrası saklanmaz."""
     post_id = f"g_{uuid.uuid4().hex[:10]}"
-    with temporary_upload(file) as path:
+    with temporary_upload(file) as (path, kind):
         analysis = pipeline.analyse(
-            body=body, media_kind="image", media_fingerprint=str(path), content_id=post_id
+            body=body, media_kind=kind, media_fingerprint=str(path), content_id=post_id
         )
     return _publish(
-        post_id=post_id, body=body, audience=audience, media=UPLOADED_IMAGE, analysis=analysis
+        post_id=post_id,
+        body=body,
+        audience=audience,
+        media=UPLOADED_MEDIA[kind],
+        analysis=analysis,
     )
 
 

@@ -22,6 +22,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
+from krizkalkan_core import medya
 from krizkalkan_core.fusion import engine as fusion
 from krizkalkan_core.knowledge import engine as knowledge
 from krizkalkan_core.metrics import MetricsCollector
@@ -76,6 +77,32 @@ class AnalysisPipeline:
         content_id: str | None = None,
         spread_per_minute: float = 0.0,
     ) -> AnalysisResult:
+        ortak = {
+            "body": body,
+            "media_kind": media_kind,
+            "media_fingerprint": media_fingerprint,
+            "content_id": content_id,
+            "spread_per_minute": spread_per_minute,
+        }
+        # Gerçek video: görüntü tabanlı modüller (M1 köken indeksi, M2 sahne–iddia)
+        # videonun anahtar karesini, M4 videonun kendisini inceler. Kare yalnızca
+        # analiz süresince diskte durur.
+        video_yolu = medya.dosya_yolu(media_fingerprint) if media_kind == "video" else None
+        if video_yolu is None:
+            return self._analyse(**ortak, gorsel_izi=media_fingerprint)
+        with medya.anahtar_kare(video_yolu) as kare:
+            return self._analyse(**ortak, gorsel_izi=str(kare) if kare else media_fingerprint)
+
+    def _analyse(
+        self,
+        *,
+        body: str,
+        media_kind: str,
+        media_fingerprint: str | None,
+        gorsel_izi: str | None,
+        content_id: str | None,
+        spread_per_minute: float,
+    ) -> AnalysisResult:
         started = time.perf_counter()
         content_id = content_id or f"c_{uuid.uuid4().hex[:10]}"
         cache_key = self._cache_key(body, media_kind, media_fingerprint)
@@ -120,7 +147,7 @@ class AnalysisPipeline:
         claimed_location = next((c.location for c in claims if c.location), None)
 
         # ── M1: Köken (ucuz, kesin kanıt üretebilir) ──
-        prov_match, prov_signals = provenance.analyse(media_fingerprint, claimed_location)
+        prov_match, prov_signals = provenance.analyse(gorsel_izi, claimed_location)
         signals.extend(prov_signals)
         modules_run.append("M1")
 
@@ -144,9 +171,7 @@ class AnalysisPipeline:
             modules_skipped.extend(["M2", "M4"])
             skip_reason = "İçerikte medya bulunmadığı için medya modülleri atlandı."
         else:
-            signals.extend(
-                multimodal.analyse(media_fingerprint, media_kind, has_audio, claims, body)
-            )
+            signals.extend(multimodal.analyse(gorsel_izi, media_kind, has_audio, claims, body))
             modules_run.append("M2")
             signals.extend(synthetic.analyse(media_fingerprint, media_kind, has_audio))
             modules_run.append("M4")

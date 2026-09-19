@@ -164,9 +164,13 @@ def test_okunamayan_dosyada_sozluge_dusulmez(monkeypatch, tmp_path: Path) -> Non
 
     sinyaller = synthetic.analyse(str(bozuk), "video", has_audio=False)
 
-    video = _sinyal(sinyaller, "synthetic.video")
+    # Video dosyası artık video modülüne gider (synthetic/video.py); görüntü
+    # detektörüne hiç sorulmaz. Çözülemeyen dosyada o da çekinir.
+    video = _sinyal(sinyaller, "synthetic.video_clip")
     assert video is not None and video.abstained
-    assert "ffmpeg" in (video.abstain_reason or "")
+    assert _sinyal(sinyaller, "synthetic.video") is None
+    # Dosya adındaki "ai-uretilmis" hiçbir sinyale skor olarak sızmaz.
+    assert all(s.abstained or s.raw_score == 0.0 for s in sinyaller)
 
 
 # ────────────────────────── çekinme mantığı ──────────────────────────
