@@ -1,0 +1,49 @@
+{
+  "_aciklama": "M4/M6 için ÜRETİLMİŞ afet görselleri korpusunun komut bankası. Her komut fotoğrafçılık diliyle yazılmıştır ('amateur smartphone photo', 'press photograph'): tehdit modeli, sosyal medyada haber fotoğrafı diye dolaşan üretilmiş görseldir; konsept sanatı değildir. 'cinematic', '8k', 'artstation' gibi ifadeler BİLİNÇLİ OLARAK yoktur — modeli sanatsal üretime iterler ve ölçülmek istenen alanı kaçırırlar.",
+  "_etik": "Hiçbir komut gerçek kişi, gerçek olay adı veya kurum logosu içermez. Görseller yalnızca dedektör değerlendirmesinde kullanılır, gerçek olay diye etiketlenmez ve depoya gömülmez (data/ .gitignore altındadır). Kayıt: docs/etik-protokol.md",
+  "_kaynak": "Komutlar takım tarafından yazılmıştır; hiçbir veri kümesinden kopyalanmamıştır (lisans zinciri temiz kalsın diye).",
+  "deprem": [
+    "candid documentary photograph, unstaged, taken by a passer-by, collapsed six-storey concrete apartment building, pancaked floors, twisted rebar, thick concrete dust in the air, overcast morning light, handheld and slightly tilted, Mediterranean town street",
+    "press photograph, search and rescue team in orange high-visibility vests climbing over a rubble pile of a collapsed building, dust, scattered household belongings, grey daylight",
+    "candid documentary photograph at dusk, street of damaged apartment blocks after an earthquake, facades sheared off exposing rooms, cars crushed under debris, people standing in the street wrapped in blankets",
+    "handheld news photo, wide shot of an earthquake-damaged neighbourhood, several partially collapsed mid-rise buildings, cranes and excavators working on debris, hazy sky",
+    "candid documentary photograph, interior of an apartment after a strong earthquake, cracked plaster walls, fallen bookshelves and broken crockery across the floor, daylight through a window",
+    "documentary photograph, night scene at a collapsed building, portable floodlights on tripods, rescue workers with helmets and headlamps searching rubble, dust in the light beams",
+    "candid snapshot, tent encampment for displaced residents in a stadium car park after an earthquake, rows of white and blue tents, laundry lines, winter light",
+    "press photo, close view of a cracked and buckled asphalt road with a wide fissure after a seismic event, kerbstones displaced, parked cars tilted",
+    "candid documentary photograph, unstaged, minaret of a small town mosque snapped and fallen across a street, rubble at the base, onlookers at a distance, flat daylight",
+    "handheld photo, collapsed roof of a village house built of stone and timber, debris spilling into a courtyard, chickens and scattered furniture, morning light",
+    "news photograph, excavator clearing rubble of a destroyed building while rescue workers watch, dust cloud, high-visibility clothing, overcast",
+    "candid photograph from a balcony, view over a street of earthquake damage, cracked facades, ambulance with lights on, people gathered on the pavement",
+    "documentary photo, row of damaged shops with collapsed awnings and shattered glass storefronts, merchandise in the street, grey afternoon",
+    "candid documentary photograph, drone-style elevated view of a town block with three collapsed buildings among intact ones, debris fields, emergency vehicles on the access road",
+    "press photograph, close-up of rescue dog and handler working on a rubble pile, dust, high-visibility vest, low winter sun"
+  ],
+  "sel": [
+    "candid documentary photograph, unstaged, flooded town street with brown muddy water up to car windows, partially submerged vehicles, shopfronts flooded, overcast light",
+    "press photograph, rescue boat with inflatable hull carrying residents through a flooded residential street, water reaching first-floor windows, grey sky",
+    "handheld documentary photograph, torrential flood water rushing through a narrow street between stone buildings, debris and furniture carried by the current, daytime",
+    "documentary photo, aftermath of a flash flood in a mountain village, mud and gravel covering the road, damaged cars pushed against walls, clearing sky",
+    "candid documentary photograph, interior of a flooded ground-floor shop, muddy water line on the walls, ruined stock floating, fluorescent light",
+    "news photograph, collapsed bridge over a swollen brown river after heavy rain, broken concrete span, fast water, riverside trees bent",
+    "candid snapshot, flooded agricultural field with submerged greenhouses and a tractor stuck in water, flat horizon, overcast",
+    "press photo, residents wading through knee-deep flood water carrying belongings above their heads, narrow urban street, rain",
+    "handheld photo, flood water receding from a street leaving thick mud, damaged parked cars, shopkeepers shovelling, harsh midday sun",
+    "documentary photograph, storm drain overwhelmed and water surging up through a road, pedestrians on a raised kerb, heavy rain, grey light",
+    "candid documentary photograph, unstaged, seaside promenade during a storm surge, waves breaking over the barrier onto the road, spray, dark clouds"
+  ],
+  "yangın": [
+    "candid documentary photograph, unstaged, forest fire on a hillside at dusk, orange flames along the ridge, heavy smoke, silhouetted pine trees, handheld",
+    "press photograph, firefighters in protective gear with a hose line at the edge of a burning pine forest, smoke, embers, low visibility",
+    "handheld documentary photograph, wildfire approaching a village, orange glow behind houses, thick smoke obscuring the sky, residents watching from a road",
+    "documentary photo, aerial-style view of a firefighting aircraft dropping water over a burning forest, smoke plume, hazy air",
+    "candid documentary photograph, burnt hillside after a wildfire, blackened tree trunks, ash-covered ground, smoke still rising in places, harsh daylight",
+    "news photograph, apartment block fire at night, flames from several windows, fire engine with ladder extended, water spray, dark sky",
+    "candid snapshot, thick brown smoke plume from a wildfire seen from a coastal road, sun reddened by smoke, parked cars, hot afternoon",
+    "press photo, firefighters damping down smouldering remains of a burnt house, charred beams, ash, protective helmets, daylight",
+    "handheld photo, wildfire crossing a rural road at night, flames on both verges, orange light on the asphalt, smoke",
+    "documentary photograph, burnt-out cars and blackened olive trees after a fire passed through a rural property, ash, grey overcast",
+    "candid documentary photograph, unstaged, market stall fire in a town street, flames and black smoke, bystanders with phones, daylight"
+  ],
+  "_duzeltme": "Pilot koşuda 'amateur smartphone photo' ifadesi 3 görselin 2'sinde kadraja telefon tutan bir el koydurdu — istenen çerçeveleme değil. İfadeler fotojurnalizm diline çevrildi; cihazı göstermeden aynı amatör çerçevelemeyi veriyor."
+}

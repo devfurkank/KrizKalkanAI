@@ -23,6 +23,21 @@ from krizkalkan_core.taxonomy import (
     Verdict,
 )
 
+#: Sahne çelişkisinin yanlış bağlam kurması için gereken kalibre skor.
+#:
+#: Ölçümden seçildi (docs/metrikler/m6.md): 0,60'ta duyarlılık 0,77 ·
+#: kesinlik 0,94 · yanlış pozitif 0,05. Daha yüksek eşik kesinliği bir puan
+#: artırırken duyarlılıktan beş puan götürüyor.
+SAHNE_CELISKI_ESIGI = 0.60
+
+#: Sentetik kanıtın SENTETİK_MEDYA kurması için gereken kalibre skor.
+#:
+#: Adlandırılmış olması şart: `scripts/eval/m6_fusion.py` bu değeri okuyup
+#: öğrenilmiş bir kalibrasyonun sinyali ateşleyemez hâle getirip getirmediğini
+#: denetler. Eşik burada, denetim orada ayrı sabit olsaydı ikisi sessizce
+#: ayrı düşerdi.
+SENTETIK_KANIT_ESIGI = 0.62
+
 
 def apply_calibration(signals: list[Signal]) -> list[Signal]:
     """Her sinyalin skorunu kalibre eder; ham skoru saklar."""
@@ -66,8 +81,10 @@ def fuse(
     """
     prov = _active(signals, "provenance.match")
     synth_video = _active(signals, "synthetic.video")
+    synth_klip = _active(signals, "synthetic.video_clip")
     synth_audio = _active(signals, "synthetic.audio")
     c2pa = _active(signals, "synthetic.c2pa")
+    ustveri = _active(signals, "synthetic.metadata")
     av_sync = _active(signals, "multimodal.av_sync")
     speaker_face = _active(signals, "multimodal.speaker_face")
     scene_claim = _active(signals, "multimodal.scene_claim")
@@ -80,7 +97,12 @@ def fuse(
         return [by_key[k] for k in keys if k in by_key and not by_key[k].abstained]
 
     # ── 1. Köken önceliği: yanlış bağlam kesin kanıttır ──
-    if provenance and provenance.matched and prov >= 0.60:
+    #
+    # Eşleşmenin TEK BAŞINA yanlış bağlam anlamına gelmediğine dikkat: görüntü
+    # gerçekten o olaya aitse ve metin de onu söylüyorsa bağlam doğrudur ve
+    # eşleşme içeriği DESTEKLEYEN bir kanıttır. Sınıf ancak kaydın konumu/olayı
+    # metindeki iddiayla çeliştiğinde kurulur.
+    if provenance and provenance.matched and prov >= 0.60 and provenance.context_conflict:
         return (
             Verdict.YANLIS_BAGLAM,
             min(0.97, prov),
@@ -88,13 +110,31 @@ def fuse(
         )
 
     # ── 2. Sentetik medya ──
-    synthetic_evidence = max(synth_video, synth_audio, c2pa)
-    if synthetic_evidence >= 0.62:
+    #
+    # `synthetic.manipulation` (tam üretim mi, mevcut içeriğin kurcalanması mı)
+    # koşula GİRMEZ, yalnızca kanıt olarak taşınır. Ölçüldü: üç sınıflı detektör
+    # tamamı gerçek olan kümelerde de üretilmiş sınıflarından birini seçiyor ve
+    # "gerçek" sınıfına ortalama 0,001–0,004 olasılık veriyor
+    # (docs/metrikler/m4.md · bölüm 4). Karara katılması gerçek afet
+    # fotoğraflarını sınıflandırırdı; kanıt panelinde görünmesi ise sınıfın
+    # neye dayandığını açıklar.
+    # `synthetic.metadata` belgesel bir sinyaldir: dosyaya gömülü üretim
+    # parametresi bir tahmin değil, üretici aracın kendi kaydıdır. Ölçüldü
+    # (n=592, OpenFake): gerçek görüntülerde yanlış pozitif %0,0
+    # (docs/metrikler/m4-ustveri.md). Bu yüzden C2PA ile aynı torbadadır.
+    synthetic_evidence = max(synth_video, synth_klip, synth_audio, c2pa, ustveri)
+    if synthetic_evidence >= SENTETIK_KANIT_ESIGI:
         return (
             Verdict.SENTETIK_MEDYA,
             min(0.96, synthetic_evidence),
             contributors(
-                "synthetic.video", "synthetic.audio", "synthetic.c2pa", "multimodal.av_sync"
+                "synthetic.video",
+                "synthetic.video_clip",
+                "synthetic.audio",
+                "synthetic.c2pa",
+                "synthetic.metadata",
+                "synthetic.manipulation",
+                "multimodal.av_sync",
             ),
         )
 
@@ -107,6 +147,24 @@ def fuse(
             Verdict.MANIPULE_MEDYA,
             min(0.95, manipulation_evidence + agreement),
             contributors("multimodal.av_sync", "multimodal.speaker_face", "synthetic.audio"),
+        )
+
+    # ── 3b. Sahne çelişkisi: medya gerçek, gösterdiği olay iddiadan başka ──
+    #
+    # Ölçüldü (docs/metrikler/m6.md, n=115): kalibre sahne sinyali uyumlu
+    # vakalarda medyan 0,12, uyuşmaz vakalarda 0,88 veriyor. Eşik 0,60'ta
+    # duyarlılık 0,77 · kesinlik 0,94 · yanlış pozitif 0,05.
+    #
+    # Köken kaydı bağlamı DOĞRULADIYSA bu dal çalışmaz: eşleşen kayıt görüntünün
+    # gerçekten o olaya ait olduğunu söylüyorsa, görsel-dil modelinin ikinci
+    # tahmini bunu geçersiz kılamaz. Kesin kanıt olasılıksal sinyalden önce gelir
+    # (rapor 1.2 · köken önceliği).
+    koken_dogruladi = bool(provenance and provenance.matched and not provenance.context_conflict)
+    if scene_claim >= SAHNE_CELISKI_ESIGI and not koken_dogruladi:
+        return (
+            Verdict.YANLIS_BAGLAM,
+            min(0.90, scene_claim),
+            contributors("multimodal.scene_claim", "text.manipulative", "knowledge.verdict"),
         )
 
     # ── 4. Doğrulanmamış iddia ──
@@ -168,7 +226,8 @@ def fuse(
     # Medya analiz edildi ama sentetik medya modülü karar veremediyse, sentetik
     # olma olasılığı dışlanamaz. Diğer modüller de bir şey bulmadıysa dürüst
     # cevap "bilmiyorum"dur — "temiz" değil.
-    synth_signal = by_key.get("synthetic.video")
+    # Video içerikte bu rolü video modeli üstlenir (`synthetic.video_clip`).
+    synth_signal = by_key.get("synthetic.video") or by_key.get("synthetic.video_clip")
     if synth_signal is not None and synth_signal.abstained and strongest < ABSTENTION_FLOOR:
         return (
             Verdict.YETERSIZ_KANIT,

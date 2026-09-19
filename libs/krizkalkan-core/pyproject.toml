@@ -16,6 +16,56 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Çıkarım katmanı: demo makinesinde (CPU) kurulur.
+# Ağır eğitim bağımlılıkları bilinçli olarak ayrıdır; çekirdek kütüphane
+# ML paketleri olmadan da içe aktarılabilir kalmalıdır.
+#
+# SÜRÜMLER SABİTTİR ve bu bilinçlidir. Alt sınırla bırakıldığında iki makine
+# farklı sürüm kurup FARKLI SAYI üretiyordu: aynı ağırlıklar, aynı veri ve aynı
+# tohumla M5 Recall@1 0,8929 yerine 0,8571, M8 zor küme ARI 0,5742 yerine
+# 0,4290 ölçüldü. ONNX kullanmayan M1 ise birebir aynı kaldı — fark int8
+# çıkarımın sınırdaki kararlarından geliyor.
+#
+# Raporlanan her metrik bu sürümlerle üretilmiştir. Değiştirilirse ölçümlerin
+# tamamı yeniden koşturulmalı ve raporlar birlikte güncellenmelidir.
+models = [
+    "onnxruntime==1.30.0",
+    "numpy==2.5.3",
+    "faiss-cpu==1.15.0",
+    "pillow==12.3.0",
+    "imagehash==4.3.2",
+    "scikit-learn==1.9.1",
+    "lightgbm==4.7.0",
+    "tokenizers==0.23.2",
+    # C2PA / Content Credentials doğrulaması — M4'ün tek kriptografik sinyali.
+    "c2pa-python==0.37.10",
+    # M4 video: kare çözme ve hareket analizi. Kendi FFmpeg'ini taşır; sistemde
+    # ffmpeg kurulu olması gerekmez. Kare seçimi eğitimdekiyle birebir aynı
+    # olmalı, bu yüzden sürüm diğerleri gibi sabittir.
+    "opencv-python-headless==5.0.0.93",
+]
+
+# Yalnızca M4 video ağırlığını dışa aktarmak için (scripts/train/m4_video_disa_aktar.py).
+# Kaynak ağırlık Keras 2.10 HDF5'tir; çıkarım ONNX'te yapılır, TensorFlow demoya girmez.
+video-export = [
+    "tensorflow==2.21.0",
+    "tf_keras==2.21.0",
+    "tf2onnx==1.17.0",
+    "onnx==1.23.0",
+]
+
+# Yalnızca Kaggle/eğitim ortamında kurulur; yerel demoya girmez.
+train = [
+    "torch>=2.5.0",
+    "transformers>=4.46.0",
+    "datasets>=3.1.0",
+    "sentence-transformers>=3.3.0",
+    "accelerate>=1.1.0",
+    "evaluate>=0.4.3",
+    "onnx>=1.17.0",
+    "huggingface-hub>=0.26.0",
+]
+
 dev = [
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",

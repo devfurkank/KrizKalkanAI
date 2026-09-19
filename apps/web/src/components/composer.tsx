@@ -17,13 +17,23 @@ import {
   PollIcon,
   SmileIcon,
 } from "@/components/icons";
-import { analyze, createPost } from "@/lib/api";
+import {
+  analyze,
+  analyzeMedia,
+  createPost,
+  createPostWithMedia,
+  IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  MAX_VIDEO_BYTES,
+  VIDEO_TYPES,
+} from "@/lib/api";
+import { rememberUpload } from "@/lib/local-media";
 import type { AnalysisResult, Post } from "@/lib/types";
 import { audienceOptions, currentUser, type Audience } from "@/lib/mock-data";
 
 const MAX = 10000;
+/** Medya dışındaki araçlar demo kabuğudur; yalnızca görsel/video ekleme çalışır. */
 const TOOLS = [
-  { Icon: ImageIcon, label: "Görsel ekle" },
   { Icon: PollIcon, label: "Anket ekle" },
   { Icon: InfoIcon, label: "Bilgi" },
   { Icon: SmileIcon, label: "Emoji" },
@@ -40,6 +50,18 @@ export interface AttachedMedia {
   label: string;
 }
 
+/** Kullanıcının seçtiği gerçek görsel/video ve tarayıcı içi önizlemesi. */
+interface Upload {
+  file: File;
+  url: string;
+  kind: "image" | "video";
+}
+
+const MEDIA_TYPES = [...IMAGE_TYPES, ...VIDEO_TYPES];
+
+const TOOL_CLASS =
+  "flex size-8 items-center justify-center rounded-full text-ns-muted transition-colors hover:bg-ns-hover hover:text-ns-primary dark:text-nsd-subtle dark:hover:bg-nsd-hover";
+
 function Toolbar({
   value,
   audience,
@@ -47,8 +69,9 @@ function Toolbar({
   expanded,
   busy,
   onSubmit,
-  media,
+  mediaLabel,
   onClearMedia,
+  onPickImage,
 }: {
   value: string;
   audience: Audience;
@@ -56,35 +79,39 @@ function Toolbar({
   expanded: boolean;
   busy: boolean;
   onSubmit: () => void;
-  media: AttachedMedia | null;
+  mediaLabel: string | null;
   onClearMedia: () => void;
+  onPickImage: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const current = audienceOptions.find((o) => o.value === audience)!;
-  const canSend = value.trim().length > 0 || media !== null;
+  const canSend = value.trim().length > 0 || mediaLabel !== null;
 
   return (
     <div className="flex flex-wrap items-center gap-1">
+      <button
+        type="button"
+        title="Görsel veya video ekle"
+        aria-label="Görsel veya video ekle"
+        onClick={onPickImage}
+        className={TOOL_CLASS}
+      >
+        <ImageIcon className="size-[19px]" />
+      </button>
       {TOOLS.map(({ Icon, label }) => (
-        <button
-          key={label}
-          type="button"
-          title={label}
-          aria-label={label}
-          className="flex size-8 items-center justify-center rounded-full text-ns-muted transition-colors hover:bg-ns-hover hover:text-ns-primary dark:text-nsd-subtle dark:hover:bg-nsd-hover"
-        >
+        <button key={label} type="button" title={label} aria-label={label} className={TOOL_CLASS}>
           <Icon className="size-[19px]" />
         </button>
       ))}
 
-      {media ? (
+      {mediaLabel ? (
         <button
           type="button"
           onClick={onClearMedia}
-          className="ml-1 flex items-center gap-1.5 rounded-full bg-ns-primary-soft px-2.5 py-1 text-[11.5px] font-medium text-ns-primary dark:bg-ns-primary/20"
+          className="ml-1 flex max-w-[220px] items-center gap-1.5 rounded-full bg-ns-primary-soft px-2.5 py-1 text-[11.5px] font-medium text-ns-primary dark:bg-ns-primary/20"
         >
-          {media.label}
-          <CloseIcon className="size-3" />
+          <span className="truncate">{mediaLabel}</span>
+          <CloseIcon className="size-3 shrink-0" />
         </button>
       ) : null}
 
@@ -164,12 +191,72 @@ export function InlineComposer({
   const [preview, setPreview] = useState<AnalysisResult | null>(null);
   const [friction, setFriction] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [upload, setUpload] = useState<Upload | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  /** Henüz yayımlanmamış önizlemenin blob URL'si; bileşen kapanınca serbest bırakılır. */
+  const pendingUrl = useRef<string | null>(null);
 
-  const media = attached ?? null;
-  const expanded = focused || value.length > 0 || media !== null;
+  useEffect(
+    () => () => {
+      if (pendingUrl.current) URL.revokeObjectURL(pendingUrl.current);
+    },
+    [],
+  );
+
+  // Gerçek medya seçildiyse demo senaryosunun parmak izinin yerine geçer.
+  const media = upload ? null : (attached ?? null);
+  const mediaLabel = upload
+    ? `${upload.kind === "video" ? "Video" : "Görsel"} · ${upload.file.name}`
+    : (media?.label ?? null);
+  const expanded = focused || value.length > 0 || mediaLabel !== null;
+
+  function discardUpload() {
+    if (pendingUrl.current) URL.revokeObjectURL(pendingUrl.current);
+    pendingUrl.current = null;
+    setUpload(null);
+  }
+
+  function pickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // aynı dosya yeniden seçilebilsin
+    if (!file) return;
+    const kind = VIDEO_TYPES.includes(file.type)
+      ? "video"
+      : IMAGE_TYPES.includes(file.type)
+        ? "image"
+        : null;
+    if (kind === null) {
+      setError(
+        "Yalnızca JPEG, PNG ve WebP görseller ile MP4, MOV ve WebM videolar analiz edilebilir",
+      );
+      return;
+    }
+    const limit = kind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    if (file.size > limit) {
+      setError(
+        `${kind === "video" ? "Video" : "Görsel"} ${limit / (1024 * 1024)} MB sınırını aşıyor`,
+      );
+      return;
+    }
+    discardUpload();
+    const url = URL.createObjectURL(file);
+    pendingUrl.current = url;
+    setUpload({ file, url, kind });
+    setPreview(null);
+    setError(null);
+    setFocused(true);
+    onClearAttached?.();
+  }
+
+  function clearMedia() {
+    if (upload) discardUpload();
+    else onClearAttached?.();
+    setPreview(null);
+  }
 
   function reset() {
+    discardUpload();
     setValue("");
     setFocused(false);
     setPreview(null);
@@ -182,11 +269,13 @@ export function InlineComposer({
     setBusy(true);
     setError(null);
     try {
-      const result = await analyze({
-        body: value,
-        media_kind: media?.kind ?? "yok",
-        media_fingerprint: media?.fingerprint ?? null,
-      });
+      const result = upload
+        ? await analyzeMedia(value, upload.file)
+        : await analyze({
+            body: value,
+            media_kind: media?.kind ?? "yok",
+            media_fingerprint: media?.fingerprint ?? null,
+          });
       setPreview(result);
       if (result.intervention.level === "SEVIYE_3") setFriction(result);
     } catch (e) {
@@ -200,12 +289,19 @@ export function InlineComposer({
     setBusy(true);
     setError(null);
     try {
-      const post = await createPost({
-        body: value,
-        audience,
-        media_kind: media?.kind ?? "yok",
-        media_fingerprint: media?.fingerprint ?? null,
-      });
+      const post = upload
+        ? await createPostWithMedia(value, upload.file, audience)
+        : await createPost({
+            body: value,
+            audience,
+            media_kind: media?.kind ?? "yok",
+            media_fingerprint: media?.fingerprint ?? null,
+          });
+      if (upload) {
+        // Medya artık akışa ait: blob URL serbest bırakılmaz.
+        rememberUpload(post.id, upload.url);
+        pendingUrl.current = null;
+      }
       onPosted(post);
       reset();
     } catch (e) {
@@ -246,6 +342,52 @@ export function InlineComposer({
           ) : null}
         </div>
 
+        {upload ? (
+          <div className="mt-3 ml-[50px]">
+            <div className="relative w-fit max-w-full">
+              {upload.kind === "video" ? (
+                <video
+                  src={upload.url}
+                  controls
+                  muted
+                  playsInline
+                  aria-label="Yüklenen videonun önizlemesi"
+                  className="max-h-72 rounded-xl border border-ns-line bg-black dark:border-nsd-line"
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element -- tarayıcı içi blob önizlemesi; next/image blob URL'yi işleyemez */
+                <img
+                  src={upload.url}
+                  alt="Yüklenen görselin önizlemesi"
+                  className="max-h-72 rounded-xl border border-ns-line object-contain dark:border-nsd-line"
+                />
+              )}
+              <button
+                type="button"
+                aria-label={upload.kind === "video" ? "Videoyu kaldır" : "Görseli kaldır"}
+                onClick={clearMedia}
+                className="absolute top-2 right-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/75"
+              >
+                <CloseIcon className="size-3.5" />
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11.5px] text-ns-subtle">
+              {upload.kind === "video" ? "Video" : "Görsel"} yalnızca analiz süresince işlenir;
+              sunucuda saklanmaz.
+            </p>
+          </div>
+        ) : null}
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept={MEDIA_TYPES.join(",")}
+          onChange={pickImage}
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+
         <div className="mt-3">
           <Toolbar
             value={value}
@@ -253,8 +395,9 @@ export function InlineComposer({
             onAudience={setAudience}
             expanded={expanded}
             busy={busy}
-            media={media}
-            onClearMedia={() => onClearAttached?.()}
+            mediaLabel={mediaLabel}
+            onClearMedia={clearMedia}
+            onPickImage={() => fileRef.current?.click()}
             onSubmit={preview ? publish : runAnalysis}
           />
         </div>

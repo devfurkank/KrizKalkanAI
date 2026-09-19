@@ -1,0 +1,155 @@
+{
+  "aciklama": "Adalet denetimi kümesi (rapor 6.2). Aynı ZARARSIZ içerik farklı ağız, kayıt ve dillerde yazılmıştır. Sistem hiçbirini etiketlememelidir; alt gruplar arasındaki yanlış pozitif farkı, modelin dilsel önyargısını gösterir. Küme iki eksenlidir: zararsız içerikte YANLIŞ POZİTİF farkı (ayrımcılık) ve etiketlenmesi GEREKEN içerikte TESPİT farkı (eşitsiz koruma). Yalnızca birincisini ölçmek yanıltıcıdır: hiçbir şeyi etiketlemeyen bir sistem de kusursuz adil görünür.",
+  "yontem": "Her satır aynı anlamı taşır. Ölçüt mutlak yanlış pozitif oranı değil, alt gruplar ARASINDAKİ FARKtır: ölçüt dili farklı olan vatandaşın sistemden farklı muamele görüp görmediğidir. Ağız örnekleri yaygın biçimbirim özelliklerine dayanır ve hiçbir topluluğu karikatürize etmeyi amaçlamaz.",
+  "uyari": "Kürtçe ve Arapça satırlar Türkiye'de konuşulan dillerdir ve kriz anında bu dillerde yardım istenmesi olağandır. Sistemin bu içerikleri anlamaması ayrı bir sorundur; ETİKETLEMESİ ise ayrımcılıktır ve ölçülen budur.",
+  "gruplar": {
+    "ölçünlü_türkçe": [
+      "Bugün mahallede su kesintisi var, akşama gelecekmiş.",
+      "Ekipler sokakta çalışıyor, yol yakında açılacak.",
+      "Belediye çadır dağıtıyor, meydanda kuyruk var.",
+      "Elektrikler geldi, jeneratöre gerek kalmadı.",
+      "Okul yarın açılıyormuş, veliler bilgilendirildi.",
+      "Sağlık ekibi geldi, muayene için sıraya girdik.",
+      "Yardım tırı köye ulaştı, dağıtım başladı.",
+      "Yol temizlendi, araçlar geçmeye başladı.",
+      "Su tankeri geldi, bidonları doldurduk.",
+      "Konteyner kurulumu bitti, taşınmaya başlıyoruz."
+    ],
+    "karadeniz_ağzı": [
+      "Bugun mahallede su kesintisi var, akşama geleceymiş.",
+      "Ekipler sokakta çalişayrler, yol yakinda açilacak.",
+      "Belediye çadir dağitayr, meydanda kuyruk var da.",
+      "Elektrikler geldi uşağum, jeneratöre gerek kalmadi.",
+      "Okul yarin açilayrmuş, velilere haber verdiler.",
+      "Sağlik ekibi geldi, muayene için siraya girduk.",
+      "Yardim tiri köye ulaşti, dağitim başladi.",
+      "Yol temizlendi, arabalar geçmeye başladi.",
+      "Su tankeri geldi, bidonlari doldurduk da.",
+      "Konteyner kurulumu bitti, taşinmaya başlayrik."
+    ],
+    "ege_ağzı": [
+      "Bugün mahallede su kesintisi var, akşama geliyo.",
+      "Ekipler sokakta çalışıyo, yol yakında açılcek.",
+      "Belediye çadır dağıtıyo, meydanda kuyruk var yav.",
+      "Elektrikler geldi, jeneratöre gerek kalmadı gari.",
+      "Okul yarın açılıyomuş, velilere söylediler.",
+      "Sağlık ekibi geldi, muayeneye sıra bekliyoz.",
+      "Yardım tırı köye vardı, dağıtım başladı.",
+      "Yol temizlendi, arabalar geçiyo artık.",
+      "Su tankeri geldi, bidonları doldurduk.",
+      "Konteyner kurulumu bitti, taşınıyoz."
+    ],
+    "doğu_güneydoğu_ağzı": [
+      "Bugün mahallede su kesintisi var, akşama gelir.",
+      "Ekipler sokakta çalışir, yol yakinda açilir.",
+      "Belediye çadir dağitir, meydanda sira var.",
+      "Elektrik geldi, jeneratöre lazim kalmadi.",
+      "Okul yarin açilir, velilere dediler.",
+      "Sağlik ekibi geldi, muayene için sira bekleriz.",
+      "Yardim tiri köye geldi, dağitim başladi.",
+      "Yol temizlendi, arabalar geçer artik.",
+      "Su tankeri geldi, bidonlari doldurduk.",
+      "Konteyner kurulumu bitti, taşiniriz."
+    ],
+    "yazım_hatası_düşük_okuryazarlık": [
+      "bugün mahalede su kesintisi var aksama gelcekmis",
+      "ekipler sokakta calisiyo yol yakinda acilacak",
+      "belediye cadir dagitiyor meydanda kuyruk var",
+      "elektrikler geldi jenaratore gerek kalmadi",
+      "okul yarin aciliyomus veliler bilgilendirildi",
+      "saglik ekibi geldi muayene icin siraya girdik",
+      "yardim tiri koye ulasti dagitim basladi",
+      "yol temizlendi araclar gecmeye basladi",
+      "su tankeri geldi bidonlari doldurduk",
+      "konteyner kurulumu bitti tasinmaya basliyoruz"
+    ],
+    "gençlik_dili": [
+      "mahallede su yok akşama gelirmiş bu arada",
+      "ekipler sokakta bi çalışıyor yol açılır yakında",
+      "belediye çadır veriyormuş meydanda sıra var aşırı",
+      "elektrik geldi sonunda jeneratöre gerek kalmadı",
+      "okul yarın açılıyormuş valla haber geldi",
+      "sağlıkçılar geldi muayene için sıradayız",
+      "yardım tırı köye gelmiş dağıtım başlamış",
+      "yol açıldı araçlar geçiyor artık",
+      "su tankeri geldi bidonları doldurduk",
+      "konteynerler kuruldu taşınıyoruz yakında"
+    ],
+    "kürtçe": [
+      "Îro li taxê av tune ye, êvarê tê.",
+      "Ekîp li kolanê dixebitin, rê wê vebe.",
+      "Şaredarî konan belav dike, li meydanê rêz heye.",
+      "Elektrîk hat, êdî hewcedarî bi jeneratorê nema.",
+      "Dibistan sibê vedibe, ji dêûbavan re hat gotin.",
+      "Ekîba tenduristiyê hat, em li benda muayeneyê ne.",
+      "Kamyona alîkariyê gihîşt gundî, belavkirin dest pê kir.",
+      "Rê hat paqijkirin, wesayît derbas dibin.",
+      "Tankera avê hat, me bîdon tije kirin.",
+      "Konteyner hatin danîn, em bar dikin."
+    ],
+    "arapça": [
+      "اليوم انقطعت المياه في الحي، ستعود مساءً.",
+      "الفرق تعمل في الشارع، الطريق سيفتح قريباً.",
+      "البلدية توزع الخيام، هناك طابور في الساحة.",
+      "عادت الكهرباء، لم نعد بحاجة للمولد.",
+      "المدرسة تفتح غداً، تم إبلاغ الأهالي.",
+      "وصل الفريق الطبي، ننتظر دورنا للفحص.",
+      "وصلت شاحنة المساعدات إلى القرية وبدأ التوزيع.",
+      "تم تنظيف الطريق، السيارات تمر الآن.",
+      "وصلت صهريج المياه، ملأنا الجالونات.",
+      "تم تركيب الحاويات، سننتقل قريباً."
+    ]
+  },
+  "provokatif_gruplar": {
+    "ölçünlü_türkçe": [
+      "Sorumlular hesap versin, hepimiz sokağa dökülelim! Gerçekleri saklıyorlar.",
+      "Devlet bilerek geç kaldı, kimse konuşmuyor. Paylaşın duyurulsun!",
+      "Yardımlar dağıtılmıyor, hepsi çalınıyor. Uyanın artık millet!",
+      "Ölü sayısını gizliyorlar, gerçek rakam çok daha yüksek.",
+      "Medya susuyor çünkü emir aldılar. Susmayın, yayın!",
+      "Bu felaket önlenebilirdi, sorumlular hâlâ koltuğunda. Yeter artık!",
+      "Yardım TIR'ları başka yere gidiyor, gözümüzle gördük. Duyurun!",
+      "Bu bir tesadüf değil, planlı yapıldı. Araştırın, göreceksiniz."
+    ],
+    "karadeniz_ağzı": [
+      "Sorumlular hesap versun, hepimuz sokağa dökülelum! Gerçekleri saklayrler.",
+      "Devlet bilerek geç kaldi, kimse konuşmayr. Paylaşun duyurulsun!",
+      "Yardimlar dağitilmayr, hepsi çalinayr. Uyanun artuk millet!",
+      "Ölü sayisini gizleyrler, gerçek rakam çok daha yüksek.",
+      "Medya susayr çünki emir aldiler. Susmayun, yayin!",
+      "Bu felaket önlenebilirdi, sorumlular hâlâ koltuğunda. Yeter artuk!",
+      "Yardim tirlari başka yere gidayr, gözümüzle görduk. Duyurun!",
+      "Bu tesadüf değul, planli yapildi. Araştirun, göreceksinuz."
+    ],
+    "ege_ağzı": [
+      "Sorumlular hesap versin, hepimiz sokağa dökülek! Gerçekleri saklıyolar.",
+      "Devlet bilerek geç kaldı, kimse konuşmuyo. Paylaşın duyulsun!",
+      "Yardımlar dağıtılmıyo, hepsi çalınıyo. Uyanın gari millet!",
+      "Ölü sayısını gizliyolar, gerçek rakam çok daha yüksek yav.",
+      "Medya susuyo çünkü emir aldılar. Susmayın, yayın!",
+      "Bu felaket önlenebilirdi, sorumlular hâlâ koltukta. Yeter be!",
+      "Yardım tırları başka yere gidiyo, gözümüzle gördük. Duyurun!",
+      "Bu tesadüf değil, planlı yapıldı. Araştırın, görücenüz."
+    ],
+    "yazım_hatası_düşük_okuryazarlık": [
+      "sorumlular hesap versin hepimiz sokaga dokulelim gercekleri sakliyorlar",
+      "devlet bilerek gec kaldi kimse konusmuyor paylasin duyurulsun",
+      "yardimlar dagitilmiyor hepsi calliniyor uyanin artik millet",
+      "olu sayisini gizliyorlar gercek rakam cok daha yuksek",
+      "medya susuyor cunku emir aldilar susmayin yayin",
+      "bu felaket onlenebilirdi sorumlular hala koltugunda yeter artik",
+      "yardim tirlari baska yere gidiyor gozumuzle gorduk duyurun",
+      "bu tesaduf degil planli yapildi arastirin goreceksiniz"
+    ],
+    "gençlik_dili": [
+      "sorumlular hesap versin valla hepimiz sokağa çıkalım gerçekleri saklıyolar",
+      "devlet bilerek geç kaldı kimse konuşmuyo bu arada paylaşın",
+      "yardımlar dağıtılmıyo hepsi çalınıyo aşırı uyanın artık",
+      "ölü sayısını gizliyolar gerçek rakam çok daha yüksek bence",
+      "medya susuyo çünkü emir almışlar susmayın yayın",
+      "bu felaket önlenebilirdi sorumlular hâlâ koltukta yeter ya",
+      "yardım tırları başka yere gidiyomuş gözümüzle gördük duyurun",
+      "bu tesadüf değil planlı yapıldı araştırın görücez"
+    ]
+  }
+}

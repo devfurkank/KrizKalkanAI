@@ -14,6 +14,7 @@ import {
   ShareIcon,
   VerifiedIcon,
 } from "@/components/icons";
+import { uploadFor } from "@/lib/local-media";
 import type { MediaRef, Post } from "@/lib/types";
 
 /** Gövde metnindeki #etiketleri bağlantı rengine boyar. */
@@ -51,7 +52,44 @@ function StatPill({
   );
 }
 
-function Media({ media }: { media: MediaRef }) {
+/** Kullanıcının yüklediği görsel: yalnızca yükleyen tarayıcının kopyasından. */
+function UploadedMedia({ postId, kind }: { postId: string; kind: MediaRef["kind"] }) {
+  const url = uploadFor(postId);
+  const ad = kind === "video" ? "Video" : "Görsel";
+  if (!url) {
+    return (
+      <div className="mt-3 flex aspect-[16/7] items-center justify-center rounded-xl border border-dashed border-ns-line px-6 text-center text-[12.5px] text-ns-subtle dark:border-nsd-line">
+        {ad} analiz edildi · sunucuda saklanmadı
+      </div>
+    );
+  }
+  if (kind === "video") {
+    return (
+      <div className="mt-3 overflow-hidden rounded-xl bg-black">
+        <video
+          src={url}
+          controls
+          playsInline
+          aria-label="Paylaşılan video"
+          className="mx-auto max-h-[520px] w-full"
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl bg-black">
+      {/* eslint-disable-next-line @next/next/no-img-element -- tarayıcı içi blob kopyası; next/image blob URL'yi işleyemez */}
+      <img
+        src={url}
+        alt="Paylaşılan görsel"
+        className="mx-auto max-h-[520px] w-full object-contain"
+      />
+    </div>
+  );
+}
+
+function Media({ media, postId }: { media: MediaRef; postId: string }) {
+  if (media.uploaded) return <UploadedMedia postId={postId} kind={media.kind} />;
   if (media.kind === "grid") {
     return (
       <div className="mt-3 grid grid-cols-2 gap-[3px] overflow-hidden rounded-xl">
@@ -128,7 +166,7 @@ export function PostCard({ post, onAppeal }: { post: Post; onAppeal?: (postId: s
 
       <div className="mt-2 pl-[46px]">
         <RichText text={post.body} />
-        {post.media ? <Media media={post.media} /> : null}
+        {post.media ? <Media media={post.media} postId={post.id} /> : null}
 
         {/* Analiz katmanı — seviyeye göre farklı yoğunlukta gösterilir. */}
         {analysis && ruleZero ? (

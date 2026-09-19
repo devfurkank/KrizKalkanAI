@@ -5,12 +5,52 @@ uygun karşı önlem modeli ve C2PA köken üstverisi doğrulaması (rapor 3.1 �
 
 Kritik davranış: dağılım dışı (OOD) tespiti eşiği aşıldığında modül skor
 üretmez, çekinir. Sistem "bilmiyorum" diyebilmelidir (rapor 2.2 · Y2).
+
+Modülün üç yolu vardır ve hangisinin işlediği sinyalde görünür:
+
+    görüntü + ağırlık var   → `synthetic/image.py`    · iki bağımsız detektör
+    video + ağırlık var     → `synthetic/video.py`    · 32 kare + zamansal toplama
+    gerçek dosya            → `synthetic/c2pa.py`     · kriptografik doğrulama
+    gerçek dosya            → `synthetic/metadata.py` · gömülü üretici imzası
+    demo parmak izi / ağırlık yok → sözlük yolu (aşağıdaki işaretler)
+
+İlk üçü birlikte çalışır ve farklı güçtedir: C2PA imzası kriptografiktir,
+üretici üstverisi beyandır, sinir ağı çıkarımdır. Füzyon bunları aynı torbaya
+koymaz — belgesel olanlar önce gelir.
+
+Ağırlık yoksa sistem çökmez, sözlük yoluna düşer: `KK_MODELS=off` bugünkü
+davranışı aynen geri getirir.
 """
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
+from krizkalkan_core import medya
 from krizkalkan_core.provenance.hashing import perceptual_hash
 from krizkalkan_core.schemas import Evidence, Signal
+from krizkalkan_core.synthetic import image, metadata, video
+from krizkalkan_core.synthetic.c2pa import C2paDurum
+from krizkalkan_core.synthetic.c2pa import dogrula as c2pa_dogrula
+
+logger = logging.getLogger(__name__)
+
+#: Kanıt panelinde "üretim izi bulundu" yazmak için gereken ham skor.
+#:
+#: Ölçümden seçildi (scripts/eval/m4_synthetic.py · KARAR_ESIGI). Bu değer
+#: KARAR VERMEZ — sınıfı füzyon, kalibre skor üzerinden kurar. Yalnızca
+#: kullanıcıya gösterilen cümleyi belirler; ikisinin ayrı düşmesi, panelde
+#: "iz bulunamadı" yazarken sınıfın SENTETİK_MEDYA çıkması demek olurdu.
+URETIM_ETIKET_ESIGI = 0.70
+
+#: Video modelinin sinyal anahtarı.
+#:
+#: `synthetic.video` ile AYNI anahtar kullanılmaz, çünkü o anahtarın ölçülmüş
+#: kalibrasyonu görüntü detektörünün skorlarından öğrenildi
+#: (models/m6_fusion/kalibrasyon.json). Başka bir modelin skorunu o eğriden
+#: geçirmek, video modelinin karar eşiğini sessizce başka bir yere taşırdı.
+VIDEO_KLIP_ANAHTARI = "synthetic.video_clip"
 
 #: Bu işaretleri taşıyan medya sentetik/manipüle üretim olarak modellenir.
 _SYNTHETIC_MARKERS = ("ai-", "sentetik", "uretilmis", "deepfake", "klon")
@@ -26,12 +66,296 @@ def _deterministic_score(fingerprint: str, salt: str, low: float, high: float) -
 
 
 def _c2pa_status(fingerprint: str) -> tuple[str, float]:
-    """C2PA / Content Credentials üstverisini doğrular."""
+    """C2PA üstverisi — demo parmak izleri için sözlük yolu.
+
+    Gerçek dosya geldiğinde `_c2pa_gercek` kullanılır; bu yol yalnızca dize
+    parmak iziyle temsil edilen demo senaryolarını çalıştırır.
+    """
     if "c2pa-ai" in fingerprint:
         return "C2PA: içerik yapay zekâ üretimi olarak imzalanmış", 0.95
     if "c2pa-kamera" in fingerprint:
         return "C2PA: cihaz imzası doğrulandı, üretim zinciri bozulmamış", 0.02
     return "C2PA üstverisi bulunamadı", 0.0
+
+
+def _c2pa_gercek(yol: Path) -> Signal:
+    """Dosyanın C2PA imzasını gerçekten doğrular.
+
+    Diğer M4 sinyalleri olasılıksaldır; bu değildir. İmza kriptografik bir
+    kayıttır: içerik AI üretimi olarak imzalanmışsa sistem tahmin etmez,
+    doğrular (rapor 3.1 · M4).
+    """
+    sonuc = c2pa_dogrula(yol)
+    ayrintilar = [
+        p
+        for p in (
+            f"üretici: {sonuc.uretici}" if sonuc.uretici else None,
+            f"kaynak türü: {sonuc.dijital_kaynak.rsplit('/', 1)[-1]}"
+            if sonuc.dijital_kaynak
+            else None,
+            f"manifest zinciri: {sonuc.manifest_sayisi} kayıt"
+            if sonuc.manifest_sayisi > 1
+            else None,
+            sonuc.ayrinti,
+        )
+        if p
+    ]
+    return Signal(
+        module="M4",
+        key="synthetic.c2pa",
+        label="Köken üstverisi (C2PA)",
+        score=sonuc.skor,
+        raw_score=sonuc.skor,
+        abstained=sonuc.cekinmeli,
+        abstain_reason=(
+            # İmza yokluğu içerik hakkında hiçbir şey söylemez: C2PA yaygın
+            # değildir ve imzasız içerik kuraldır, istisna değil. "Veri var ama
+            # okunamadı" ise ayrı bir durumdur ve ayrı yazılır.
+            (
+                "İçerikte C2PA verisi var ancak doğrulanamadı — bu bir suçlama "
+                "değildir, incelenmeye değer bir not"
+                if sonuc.durum is C2paDurum.IMZA_OKUNAMADI
+                else "İçerikte C2PA imzası yok — bu, içeriğin sahte olduğu anlamına gelmez"
+            )
+            if sonuc.cekinmeli
+            else None
+        ),
+        evidence=[
+            Evidence(
+                kind="ustveri",
+                label=sonuc.aciklama,
+                detail=" · ".join(ayrintilar) or None,
+            )
+        ],
+    )
+
+
+def _goruntu_sinyalleri(yol: Path) -> list[Signal] | None:
+    """Gerçek görüntü üzerinde iki detektörü çalıştırır; model yoksa None.
+
+    None dönmesi "temiz" demek değildir; çağıran sözlük yoluna düşer. Dosya
+    görüntü olarak çözümlenemiyorsa (video, bozuk dosya) sözlük yoluna DÜŞÜLMEZ:
+    o yol dosya adında kelime arar ve gerçek bir medya dosyası hakkında
+    söyleyebileceği hiçbir doğru şey yoktur. Böyle bir durumda çekinilir.
+    """
+    model = image.get()
+    if model is None:
+        return None
+
+    try:
+        sonuc = model.incele(yol)
+    except Exception:
+        logger.warning("Görüntü sentetik analizi yapılamadı: %s", yol)
+        return [
+            Signal(
+                module="M4",
+                key="synthetic.video",
+                label="Sentetik medya analizi",
+                score=0.0,
+                raw_score=0.0,
+                abstained=True,
+                abstain_reason=(
+                    "Dosya görüntü olarak çözümlenemedi — video içerik için kare "
+                    "çıkarımı (ffmpeg) bu kurulumda yok"
+                ),
+            )
+        ]
+
+    olcum = f"{sonuc.genislik}×{sonuc.yukseklik} · {sonuc.bayt_piksel:.3f} bayt/piksel"
+
+    if sonuc.cekindi:
+        return [
+            Signal(
+                module="M4",
+                key="synthetic.video",
+                label="Sentetik medya analizi",
+                score=0.0,
+                raw_score=0.0,
+                abstained=True,
+                abstain_reason=f"Yetersiz kanıt — {sonuc.cekinme_nedeni}",
+                evidence=[
+                    Evidence(
+                        kind="ustveri",
+                        label=(
+                            "İki bağımsız detektör çelişti"
+                            if sonuc.uyusmazlik
+                            else "Dağılım dışı girdi tespit edildi"
+                        ),
+                        detail=f"{sonuc.cekinme_nedeni} · {olcum}",
+                    )
+                ],
+            )
+        ]
+
+    dagilim = " · ".join(f"{ad}: {deger:.3f}" for ad, deger in sonuc.tur_skorlari.items())
+    sinyaller = [
+        Signal(
+            module="M4",
+            key="synthetic.video",
+            label="Görüntüde sentetik üretim izi",
+            score=sonuc.uretim_skoru,
+            raw_score=sonuc.uretim_skoru,
+            evidence=[
+                Evidence(
+                    kind="kare",
+                    label=(
+                        "Görüntüde yapay üretim izi bulundu"
+                        if sonuc.uretim_skoru >= URETIM_ETIKET_ESIGI
+                        else "Belirgin üretim artefaktı bulunamadı"
+                    ),
+                    locator="tam kare · iki bağımsız detektör",
+                    detail=f"tür dağılımı → {dagilim} · {olcum}",
+                )
+            ],
+        )
+    ]
+
+    # Tür ayrımı AYRI bir sinyaldir. SENTETİK_MEDYA ile MANİPÜLE_MEDYA farklı
+    # sınıflardır; tek skor bu ayrımı taşıyamaz. Sinyalin karara nasıl girdiği
+    # `fusion/engine.py` içinde, ölçüme dayanarak belirlenir.
+    sinyaller.append(
+        Signal(
+            module="M4",
+            key="synthetic.manipulation",
+            label="Gerçek içerik üzerinde oynama izi",
+            score=sonuc.manipulasyon_skoru,
+            raw_score=sonuc.manipulasyon_skoru,
+            evidence=[
+                Evidence(
+                    kind="kare",
+                    label=(
+                        "İz, sıfırdan üretimden çok mevcut içeriğin değiştirilmesine benziyor"
+                        if sonuc.tur == "manipüle"
+                        else f"Baskın tür: {sonuc.tur}"
+                    ),
+                    locator="üç sınıflı detektör",
+                    detail=dagilim,
+                )
+            ],
+        )
+    )
+    return sinyaller
+
+
+def _video_cekinme(neden: str, evidence: list[Evidence] | None = None) -> Signal:
+    return Signal(
+        module="M4",
+        key=VIDEO_KLIP_ANAHTARI,
+        label="Videoda sentetik üretim izi",
+        score=0.0,
+        raw_score=0.0,
+        abstained=True,
+        abstain_reason=neden,
+        evidence=evidence or [],
+    )
+
+
+def _video_sinyalleri(yol: Path) -> list[Signal]:
+    """Gerçek video dosyasını video modelinden geçirir.
+
+    Model yoksa sözlük yoluna DÜŞÜLMEZ: o yol dosya adında kelime arar ve
+    gerçek bir dosya hakkında söyleyebileceği doğru bir şey yoktur. Çekinilir
+    ve nedeni kayıt defterinden okunur (ağırlık yok, kapı kapalı vb.).
+    """
+    model = video.get()
+    if model is None:
+        return [_video_cekinme(f"Video modeli kullanılamıyor — {video.reason()}")]
+
+    try:
+        sonuc = model.incele(yol)
+    except ImportError:
+        # Model yüklü ama kare çözücü yok: dosya hakkında hiçbir şey bilinmiyor.
+        # "Bozuk dosya" demek, kurulum eksiğini kullanıcının dosyasına yüklemek olurdu.
+        logger.warning("Video çözülemedi, OpenCV kurulu değil: %s", yol)
+        return [_video_cekinme("Video kareleri çözülemedi — bu kurulumda OpenCV yok")]
+    except Exception:
+        logger.exception("Video sentetik analizi yapılamadı: %s", yol)
+        return [_video_cekinme("Video çözümlenemedi — dosya bozuk ya da desteklenmeyen kodlama")]
+
+    olcum = (
+        f"{sonuc.genislik}×{sonuc.yukseklik} · {sonuc.sure_sn:.1f} sn · "
+        f"{sonuc.kare_sayisi} kare · {sonuc.fps:.0f} fps"
+    )
+    if sonuc.cekindi:
+        return [
+            _video_cekinme(
+                f"Yetersiz kanıt — {sonuc.cekinme_nedeni}",
+                [
+                    Evidence(
+                        kind="ustveri",
+                        label="Video modelin çalışma aralığı dışında",
+                        detail=f"{sonuc.cekinme_nedeni} · {olcum}",
+                    )
+                ],
+            )
+        ]
+
+    return [
+        Signal(
+            module="M4",
+            key=VIDEO_KLIP_ANAHTARI,
+            label="Videoda sentetik üretim izi",
+            score=sonuc.uretim_skoru,
+            raw_score=sonuc.uretim_skoru,
+            evidence=[
+                Evidence(
+                    kind="kare",
+                    label=(
+                        "Videoda yapay üretim izi bulundu"
+                        if sonuc.uretilmis
+                        else "Videoda belirgin üretim izi bulunamadı"
+                    ),
+                    locator=(
+                        f"{len(sonuc.secilen_kareler)} kare · hareket duyarlı örnekleme · "
+                        "zamansal toplama"
+                    ),
+                    detail=(
+                        f"P(üretilmiş) {sonuc.uretim_skoru:.3f} · model eşiği "
+                        f"{sonuc.karar_esigi:.2f} · {olcum} · {sonuc.sure_ms:.0f} ms"
+                    ),
+                )
+            ],
+        )
+    ]
+
+
+def _ustveri_sinyali(yol: Path) -> Signal:
+    """Dosyaya gömülü üretici izlerini okur.
+
+    Üstveri yokluğu çekinme sebebidir, suçlama değil: sosyal platformlar
+    yüklemede üstveriyi siler ve imzasız içerik kuraldır, istisna değil.
+    """
+    sonuc = metadata.incele(yol)
+    ayrinti = " · ".join(
+        p
+        for p in (
+            f"işaret: {sonuc.isaret}" if sonuc.isaret else None,
+            f"kamera: {sonuc.kamera}" if sonuc.kamera else None,
+            f"gömülü metin: “{sonuc.alinti}”" if sonuc.alinti else None,
+        )
+        if p
+    )
+    return Signal(
+        module="M4",
+        key="synthetic.metadata",
+        label="Üretici üstverisi",
+        score=sonuc.skor,
+        raw_score=sonuc.skor,
+        abstained=sonuc.cekinmeli,
+        abstain_reason=(
+            "Dosyada üretim üstverisi yok — bu, içeriğin sahte olduğu anlamına gelmez; "
+            "sosyal platformlar yüklemede üstveriyi siler"
+            if sonuc.cekinmeli
+            else None
+        ),
+        evidence=[
+            Evidence(
+                kind="ustveri",
+                label=sonuc.aciklama,
+                detail=ayrinti or None,
+            )
+        ],
+    )
 
 
 def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[Signal]:
@@ -50,6 +374,107 @@ def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[S
         ]
 
     fp = fingerprint.casefold()
+    signals: list[Signal] = []
+
+    # Parmak izi gerçek bir dosyayı mı gösteriyor, yoksa demo tanımlayıcısı mı?
+    # Bu ayrım modülün tamamını belirler: gerçek dosyada modeller ve kriptografi
+    # çalışır, demo tanımlayıcısında sözlük.
+    yol = medya.dosya_yolu(fingerprint)
+    gercek_dosya = yol is not None
+
+    # ── Video: gerçek video dosyası video modeline gider ──
+    # Görüntü detektörü video karelerinde ölçülmedi; videoya o uygulanmaz.
+    if yol is not None and (media_kind == "video" or medya.video_mu(yol)):
+        signals.extend(_video_sinyalleri(yol))
+    # ── Görüntü: önce model yolu ──
+    elif (goruntu := _goruntu_sinyalleri(yol) if yol is not None else None) is not None:
+        signals.extend(goruntu)
+    else:
+        signals.extend(_sozluk_goruntu(fp))
+
+    # ── Ses karşı önlemi ──
+    # Ses hâlâ sözlük yolundadır: ASVspoof karşı önlem modeli kurulmadı ve
+    # bu, model kartında açıkça yazılı bir eksiktir. Sözlük yolu yalnızca demo
+    # parmak izlerinde çalışır; gerçek dosyada skoru dosya adından türetir ve
+    # "spektral profil doğal" gibi hiç yapılmamış bir analizi raporlardı.
+    if has_audio and gercek_dosya:
+        signals.append(
+            Signal(
+                module="M4",
+                key="synthetic.audio",
+                label="Seste sentetik üretim izi",
+                score=0.0,
+                raw_score=0.0,
+                abstained=True,
+                abstain_reason="Ses karşı önlem modeli kurulmadı — ses analiz edilmedi",
+            )
+        )
+    elif has_audio:
+        if any(m in fp for m in ("klon", "sentetik-ses", "tts")):
+            raw = _deterministic_score(fp, "audio-synth", 0.74, 0.92)
+            detail = "Doğal olmayan prosodi ve spektral süreksizlik"
+        else:
+            raw = _deterministic_score(fp, "audio-clean", 0.02, 0.15)
+            detail = "Spektral profil doğal konuşma dağılımıyla uyumlu"
+        signals.append(
+            Signal(
+                module="M4",
+                key="synthetic.audio",
+                label="Seste sentetik üretim izi",
+                score=raw,
+                raw_score=raw,
+                evidence=[Evidence(kind="zaman_araligi", label=detail, locator="00:00–00:22")],
+            )
+        )
+
+    # ── Üretici üstverisi ve C2PA ──
+    # İkisi de belgeseldir: biri üreticinin beyanı, diğeri kriptografik imza.
+    # Yalnızca gerçek dosyada anlamlıdırlar.
+    if yol is not None:
+        if medya.video_mu(yol) or media_kind == "video":
+            # Üstveri tarayıcısı görüntü biçimleri için yazıldı ve yalnızca
+            # görüntüde ölçüldü (docs/metrikler/m4-ustveri.md). Videoda "üstveri
+            # yok" demek, hiç bakılmamış bir şeyi yok diye raporlamak olurdu.
+            signals.append(
+                Signal(
+                    module="M4",
+                    key="synthetic.metadata",
+                    label="Üretici üstverisi",
+                    score=0.0,
+                    raw_score=0.0,
+                    abstained=True,
+                    abstain_reason="Video kapsayıcısındaki üretici üstverisi bu sürümde okunmuyor",
+                )
+            )
+        else:
+            signals.append(_ustveri_sinyali(yol))
+        # C2PA video kapsayıcılarını (MP4/MOV) da doğrular.
+        signals.append(_c2pa_gercek(yol))
+        return signals
+
+    c2pa_label, c2pa_score = _c2pa_status(fp)
+    signals.append(
+        Signal(
+            module="M4",
+            key="synthetic.c2pa",
+            label="Köken üstverisi (C2PA)",
+            score=c2pa_score,
+            raw_score=c2pa_score,
+            abstained="bulunamadı" in c2pa_label,
+            abstain_reason="İçerikte C2PA imzası yok" if "bulunamadı" in c2pa_label else None,
+            evidence=[Evidence(kind="ustveri", label=c2pa_label)],
+        )
+    )
+
+    return signals
+
+
+def _sozluk_goruntu(fp: str) -> list[Signal]:
+    """Görüntü sinyalinin sözlük yolu — ağırlık yokken ve demo parmak izlerinde.
+
+    Davranışı model katmanı gelmeden önceki hâliyle birebir aynıdır; demo
+    senaryoları ve `KK_MODELS=off` bu yoldan geçer.
+    """
     signals: list[Signal] = []
 
     # ── Dağılım dışı kontrolü ──
@@ -107,39 +532,5 @@ def analyse(fingerprint: str | None, media_kind: str, has_audio: bool) -> list[S
                 ],
             )
         )
-
-    # ── Ses karşı önlemi ──
-    if has_audio:
-        if any(m in fp for m in ("klon", "sentetik-ses", "tts")):
-            raw = _deterministic_score(fp, "audio-synth", 0.74, 0.92)
-            detail = "Doğal olmayan prosodi ve spektral süreksizlik"
-        else:
-            raw = _deterministic_score(fp, "audio-clean", 0.02, 0.15)
-            detail = "Spektral profil doğal konuşma dağılımıyla uyumlu"
-        signals.append(
-            Signal(
-                module="M4",
-                key="synthetic.audio",
-                label="Seste sentetik üretim izi",
-                score=raw,
-                raw_score=raw,
-                evidence=[Evidence(kind="zaman_araligi", label=detail, locator="00:00–00:22")],
-            )
-        )
-
-    # ── C2PA ──
-    c2pa_label, c2pa_score = _c2pa_status(fp)
-    signals.append(
-        Signal(
-            module="M4",
-            key="synthetic.c2pa",
-            label="Köken üstverisi (C2PA)",
-            score=c2pa_score,
-            raw_score=c2pa_score,
-            abstained="bulunamadı" in c2pa_label,
-            abstain_reason="İçerikte C2PA imzası yok" if "bulunamadı" in c2pa_label else None,
-            evidence=[Evidence(kind="ustveri", label=c2pa_label)],
-        )
-    )
 
     return signals

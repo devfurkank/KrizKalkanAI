@@ -207,3 +207,52 @@ def test_metrikler_toplaniyor(pipeline: AnalysisPipeline) -> None:
     assert pipeline.metrics.total_analyses == 2
     assert pipeline.metrics.p50_ms >= 0
     assert pipeline.metrics.removed_content == 0
+
+
+# ─────────────────── Köken: eşleşme ≠ suçlama ───────────────────
+
+
+def test_dogru_baglamda_eslesme_suclama_degildir(pipeline: AnalysisPipeline) -> None:
+    """Görüntü gerçekten o olaya aitse ve metin de onu söylüyorsa bağlam doğrudur.
+
+    Füzyon başlangıçta `matched` olmasını tek başına YANLIŞ_BAĞLAM sayıyordu;
+    bu, doğru bağlamda paylaşılan her arşiv görüntüsünü suçlamak demekti.
+    """
+    result = pipeline.analyse(
+        body="Hatay'da depremde yıkılan binalar. Arama kurtarma ekipleri çalışıyor.",
+        media_kind="image",
+        media_fingerprint="deprem-yikim-hatay-2023",
+    )
+    assert result.provenance is not None
+    assert result.provenance.matched, "tohum korpusuyla eşleşmeli"
+    assert not result.provenance.context_conflict
+    assert result.verdict is not Verdict.YANLIS_BAGLAM
+    assert result.intervention.level is InterventionLevel.NONE
+
+
+def test_konum_celiskisi_yanlis_baglam_kurar(pipeline: AnalysisPipeline) -> None:
+    """Aynı görüntü, başka bir şehir iddiasıyla paylaşılırsa sınıf kurulur."""
+    result = pipeline.analyse(
+        body="İzmir'de bugün deprem oldu, binalar işte böyle yıkıldı!",
+        media_kind="image",
+        media_fingerprint="deprem-yikim-hatay-2023",
+    )
+    assert result.provenance is not None
+    assert result.provenance.context_conflict
+    assert result.verdict is Verdict.YANLIS_BAGLAM
+    assert result.provenance.conflict_detail is not None
+
+
+def test_konum_karsilastirmasi_turkce_buyuk_harfe_dayanikli() -> None:
+    """Konum karşılaştırması Türkçe I/İ tuzağına düşmemelidir.
+
+    "İZMİR".casefold() birleşik noktalı i üretir ve "izmir" ile eşleşmez;
+    aynı tuzak M5'te derece etiketlerinde de yaşanmıştı.
+    """
+    from krizkalkan_core.provenance.engine import _konum_celiskisi
+
+    assert not _konum_celiskisi("İZMİR", "İzmir")
+    assert not _konum_celiskisi("izmir", "İZMİR")
+    assert not _konum_celiskisi("Şanlıurfa", "Adıyaman/Şanlıurfa"), "birleşik konum parçası"
+    assert _konum_celiskisi("İzmir", "Hatay")
+    assert not _konum_celiskisi(None, "Hatay"), "konum yoksa çelişki de yok"
